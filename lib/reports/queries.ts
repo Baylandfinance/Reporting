@@ -22,42 +22,56 @@ async function auditReportView(profile: Profile, report: string) {
 
 const PAGE_SIZE = 1000;
 
+/** A cheap head-only count, still RLS-scoped — used to size the parallel page fetch below. */
+async function countRows(
+  supabase: SupabaseClient,
+  table: "loans" | "loan_commissions" | "clients"
+): Promise<number> {
+  const { count } = await supabase.from(table).select("*", { count: "exact", head: true });
+  return count ?? 0;
+}
+
 /**
  * Supabase's REST API caps any single request at 1,000 rows by default,
  * silently — a `.select()` on a table with 3,500 rows returns only the
  * first 1,000 with no error and no indication of truncation. Every report
  * here aggregates in JS rather than in SQL, so it must page through the
- * full result set itself rather than trusting one `.select()` to return
- * everything.
+ * full result set itself. Pages are fetched in parallel (not one after
+ * another) since we know the total up front from countRows() — a 3,500-row
+ * table is 4 requests either way, but concurrently they cost about as long
+ * as one.
  */
 async function selectAllRows<T>(
+  total: number,
   query: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>
 ): Promise<T[]> {
+  if (total === 0) return [];
+  const pageStarts: number[] = [];
+  for (let from = 0; from < total; from += PAGE_SIZE) pageStarts.push(from);
+
+  const pages = await Promise.all(pageStarts.map((from) => query(from, from + PAGE_SIZE - 1)));
+
   const all: T[] = [];
-  let from = 0;
-  for (;;) {
-    const { data, error } = await query(from, from + PAGE_SIZE - 1);
-    if (error || !data) break;
-    all.push(...data);
-    if (data.length < PAGE_SIZE) break;
-    from += PAGE_SIZE;
+  for (const { data, error } of pages) {
+    if (!error && data) all.push(...data);
   }
   return all;
 }
 
-type LoanForPipeline = {
-  loan_amount: number | null;
-  settlement_date: string | null;
-  application_date: string | null;
-  pipeline_stages: { name: string; category: string } | null;
-};
-
 export async function getPipelineOverview(profile: Profile) {
-  const supabase = await createClient();
+  const supabase = (await createClient()) as SupabaseClient;
   await auditReportView(profile, "pipeline_overview");
 
-  const rows = await selectAllRows<LoanForPipeline>((from, to) =>
-    (supabase as SupabaseClient)
+  type LoanForPipeline = {
+    loan_amount: number | null;
+    settlement_date: string | null;
+    application_date: string | null;
+    pipeline_stages: { name: string; category: string } | null;
+  };
+
+  const total = await countRows(supabase, "loans");
+  const rows = await selectAllRows<LoanForPipeline>(total, (from, to) =>
+    supabase
       .from("loans")
       .select("loan_amount, settlement_date, application_date, pipeline_stages(name, category)")
       .range(from, to) as unknown as PromiseLike<{ data: LoanForPipeline[] | null; error: unknown }>
@@ -133,7 +147,7 @@ export async function getPipelineOverview(profile: Profile) {
 }
 
 export async function getCommissionSummary(profile: Profile) {
-  const supabase = await createClient();
+  const supabase = (await createClient()) as SupabaseClient;
   await auditReportView(profile, "commission_summary");
 
   type CommissionRow = {
@@ -143,8 +157,9 @@ export async function getCommissionSummary(profile: Profile) {
     commission_payment_date: string | null;
   };
 
-  const rows = await selectAllRows<CommissionRow>((from, to) =>
-    (supabase as SupabaseClient)
+  const total = await countRows(supabase, "loan_commissions");
+  const rows = await selectAllRows<CommissionRow>(total, (from, to) =>
+    supabase
       .from("loan_commissions")
       .select("upfront_commission, trail_commission, clawback_amount, commission_payment_date")
       .range(from, to) as unknown as PromiseLike<{ data: CommissionRow[] | null; error: unknown }>
@@ -167,13 +182,14 @@ export async function getCommissionSummary(profile: Profile) {
 }
 
 export async function getLenderMix(profile: Profile) {
-  const supabase = await createClient();
+  const supabase = (await createClient()) as SupabaseClient;
   await auditReportView(profile, "lender_mix");
 
   type LoanForLenderMix = { loan_amount: number | null; lenders: { name: string } | null };
 
-  const rows = await selectAllRows<LoanForLenderMix>((from, to) =>
-    (supabase as SupabaseClient)
+  const total = await countRows(supabase, "loans");
+  const rows = await selectAllRows<LoanForLenderMix>(total, (from, to) =>
+    supabase
       .from("loans")
       .select("loan_amount, lender_id, lenders(name)")
       .range(from, to) as unknown as PromiseLike<{ data: LoanForLenderMix[] | null; error: unknown }>
@@ -197,7 +213,7 @@ export async function getLenderMix(profile: Profile) {
 }
 
 export async function getReferralBreakdown(profile: Profile) {
-  const supabase = await createClient();
+  const supabase = (await createClient()) as SupabaseClient;
   await auditReportView(profile, "referral_breakdown");
 
   type ClientForReferral = {
@@ -205,8 +221,9 @@ export async function getReferralBreakdown(profile: Profile) {
     lead_sources: { name: string } | null;
   };
 
-  const rows = await selectAllRows<ClientForReferral>((from, to) =>
-    (supabase as SupabaseClient)
+  const total = await countRows(supabase, "clients");
+  const rows = await selectAllRows<ClientForReferral>(total, (from, to) =>
+    supabase
       .from("clients")
       .select("client_type, lead_source_id, lead_sources(name)")
       .range(from, to) as unknown as PromiseLike<{ data: ClientForReferral[] | null; error: unknown }>
@@ -240,25 +257,15 @@ function isInMonth(dateStr: string | null, year: number, month: number): boolean
   return d.getFullYear() === year && d.getMonth() === month;
 }
 
-export async function getMonthlyActivity(profile: Profile) {
-  const supabase = await createClient();
-  await auditReportView(profile, "monthly_activity");
+type LoanActivity = {
+  enquiry_date: string | null;
+  submission_date: string | null;
+  settlement_booked_date: string | null;
+  settlement_date: string | null;
+  loan_amount: number | null;
+};
 
-  type LoanActivity = {
-    enquiry_date: string | null;
-    submission_date: string | null;
-    settlement_booked_date: string | null;
-    settlement_date: string | null;
-    loan_amount: number | null;
-  };
-
-  const rows = await selectAllRows<LoanActivity>((from, to) =>
-    (supabase as SupabaseClient)
-      .from("loans")
-      .select("enquiry_date, submission_date, settlement_booked_date, settlement_date, loan_amount")
-      .range(from, to) as unknown as PromiseLike<{ data: LoanActivity[] | null; error: unknown }>
-  );
-
+function computeMonthlyActivity(rows: LoanActivity[]) {
   // "Settled this month" (count) treats booked vs. actually-settled as two
   // views of the same event, not two events — a loan counts once even if
   // both dates land in the same month.
@@ -323,5 +330,63 @@ export async function getMonthlyActivity(profile: Profile) {
     leadsMonthly,
     submissionsMonthly,
     settlementValueMonthly,
+  };
+}
+
+/**
+ * Everything the Pipeline & Settlements page needs, from a single fetch of
+ * the loans table — it used to call getPipelineOverview() and a separate
+ * monthly-activity query back to back, paging through all loans twice on
+ * one page load. One fetch, one audit log entry, both sets of numbers.
+ */
+export async function getPipelineAndActivity(profile: Profile) {
+  const supabase = (await createClient()) as SupabaseClient;
+  await auditReportView(profile, "pipeline_and_activity");
+
+  type LoanForPipelinePage = LoanActivity & {
+    pipeline_stages: { name: string; category: string } | null;
+  };
+
+  const total = await countRows(supabase, "loans");
+  const rows = await selectAllRows<LoanForPipelinePage>(total, (from, to) =>
+    supabase
+      .from("loans")
+      .select(
+        "loan_amount, enquiry_date, submission_date, settlement_booked_date, settlement_date, application_date, pipeline_stages(name, category)"
+      )
+      .range(from, to) as unknown as PromiseLike<{
+      data: LoanForPipelinePage[] | null;
+      error: unknown;
+    }>
+  );
+
+  const settledCount = rows.filter((l) => l.pipeline_stages?.category === "settled").length;
+  const lostCount = rows.filter((l) => l.pipeline_stages?.category === "lost").length;
+  const conversionRate =
+    settledCount + lostCount > 0
+      ? Math.round((settledCount / (settledCount + lostCount)) * 100)
+      : 0;
+
+  const stageCounts: Record<string, number> = {};
+  for (const l of rows) {
+    const name = l.pipeline_stages?.name ?? "Unclassified";
+    stageCounts[name] = (stageCounts[name] ?? 0) + 1;
+  }
+  const sortedStages = Object.entries(stageCounts)
+    .map(([label, value]) => ({ label, value }))
+    .sort((a, b) => b.value - a.value);
+  const topStages = sortedStages.slice(0, 5);
+  const otherStagesTotal = sortedStages.slice(5).reduce((s, x) => s + x.value, 0);
+  const stageBreakdown =
+    otherStagesTotal > 0 ? [...topStages, { label: "Other", value: otherStagesTotal }] : topStages;
+
+  return {
+    totalLoans: rows.length,
+    settledCount,
+    lostCount,
+    conversionRate,
+    inFlightCount: rows.length - settledCount - lostCount,
+    stageBreakdown,
+    ...computeMonthlyActivity(rows),
   };
 }

@@ -5,14 +5,11 @@ import { StatTile } from "@/components/charts/StatTile";
 import { Card } from "@/components/charts/Card";
 import { TrendArea } from "@/components/charts/TrendArea";
 import { DonutBreakdown } from "@/components/charts/DonutBreakdown";
-import { getPipelineOverview, getMonthlyActivity } from "@/lib/reports/queries";
+import { getPipelineAndActivity } from "@/lib/reports/queries";
 
 export default async function PipelinePage() {
   const profile = await requireSessionProfile();
-  const [pipeline, activity] = await Promise.all([
-    getPipelineOverview(profile),
-    getMonthlyActivity(profile),
-  ]);
+  const data = await getPipelineAndActivity(profile);
 
   return (
     <>
@@ -22,26 +19,26 @@ export default async function PipelinePage() {
       />
       <main className="flex-1 space-y-6 p-6">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <StatTile label="Loans in flight" value={String(Math.max(pipeline.inFlightCount, 0))} icon={GitBranch} />
-          <StatTile label="Settled" value={String(pipeline.settledCount)} icon={CircleCheck} />
-          <StatTile label="Lost" value={String(pipeline.lostCount)} icon={XCircle} />
-          <StatTile label="Conversion rate" value={`${pipeline.conversionRate}%`} icon={Clock} />
+          <StatTile label="Loans in flight" value={String(Math.max(data.inFlightCount, 0))} icon={GitBranch} />
+          <StatTile label="Settled" value={String(data.settledCount)} icon={CircleCheck} />
+          <StatTile label="Lost" value={String(data.lostCount)} icon={XCircle} />
+          <StatTile label="Conversion rate" value={`${data.conversionRate}%`} icon={Clock} />
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <StatTile label="Leads this month" value={String(activity.leadsThisMonth)} icon={MessageCircleQuestion} />
-          <StatTile label="Submissions this month" value={String(activity.submissionsThisMonth)} icon={FileCheck2} />
-          <StatTile label="Settlements this month" value={String(activity.settlementsThisMonth)} icon={CircleCheck} />
+          <StatTile label="Leads this month" value={String(data.leadsThisMonth)} icon={MessageCircleQuestion} />
+          <StatTile label="Submissions this month" value={String(data.submissionsThisMonth)} icon={FileCheck2} />
+          <StatTile label="Settlements this month" value={String(data.settlementsThisMonth)} icon={CircleCheck} />
         </div>
 
         <Card
           title="Leads / enquiries"
           subtitle="New enquiries received per month, last 12 months"
         >
-          {pipeline.totalLoans === 0 ? (
+          {data.totalLoans === 0 ? (
             <EmptyState />
           ) : (
-            <TrendArea data={activity.leadsMonthly} format="count" />
+            <TrendArea data={data.leadsMonthly} format="count" />
           )}
         </Card>
 
@@ -49,10 +46,10 @@ export default async function PipelinePage() {
           title="Submissions"
           subtitle="Loans submitted per month, last 12 months"
         >
-          {pipeline.totalLoans === 0 ? (
+          {data.totalLoans === 0 ? (
             <EmptyState />
           ) : (
-            <TrendArea data={activity.submissionsMonthly} format="count" />
+            <TrendArea data={data.submissionsMonthly} format="count" />
           )}
         </Card>
 
@@ -60,18 +57,18 @@ export default async function PipelinePage() {
           title="Settlement value"
           subtitle="Booked and settled loan value per month, last 12 months — a loan counts under its actual settlement date once recorded, otherwise its booked date"
         >
-          {pipeline.totalLoans === 0 ? (
+          {data.totalLoans === 0 ? (
             <EmptyState />
           ) : (
-            <TrendArea data={activity.settlementValueMonthly} format="currency" />
+            <TrendArea data={data.settlementValueMonthly} format="currency" />
           )}
         </Card>
 
         <Card title="Stage breakdown" subtitle="Every loan currently on file">
-          {pipeline.stageBreakdown.length === 0 ? (
+          {data.stageBreakdown.length === 0 ? (
             <EmptyState />
           ) : (
-            <DonutBreakdown data={pipeline.stageBreakdown} centerLabel="Loans" />
+            <DonutBreakdown data={data.stageBreakdown} centerLabel="Loans" />
           )}
         </Card>
       </main>
