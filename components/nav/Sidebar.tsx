@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { LayoutDashboard, GitBranch, Wallet, Landmark, Users2, Settings, UploadCloud } from "lucide-react";
+import { LayoutDashboard, GitBranch, Wallet, Landmark, Users2, Settings, UploadCloud, UserCog } from "lucide-react";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
@@ -69,6 +69,17 @@ export function Sidebar({
             </Link>
           </>
         )}
+
+        <div className="px-3 pb-2 pt-6 text-[11px] font-medium uppercase tracking-wide text-ink-muted">
+          Account
+        </div>
+        <Link
+          href="/dashboard/account"
+          className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-[#c3c2b7] transition hover:bg-white/5 hover:text-white"
+        >
+          <UserCog className="h-4 w-4" />
+          My account
+        </Link>
       </nav>
 
       <div className="flex items-center gap-3 border-t border-white/10 px-6 py-4">
