@@ -113,7 +113,11 @@ export async function triggerGraphSync(): Promise<SyncResult> {
     actorId: admin.id,
     action: "graph_sync_manual",
     resourceType: "graph_connections",
-    metadata: { synced: result.synced, errorCount: result.errors.length },
+    metadata: {
+      synced: result.synced,
+      errorCount: result.errors.length,
+      skippedBrokerCount: result.skippedByBroker.reduce((s, b) => s + b.count, 0),
+    },
   });
 
   revalidatePath("/dashboard/admin/import");

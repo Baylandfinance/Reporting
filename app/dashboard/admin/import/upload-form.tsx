@@ -1,8 +1,9 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
-import { CheckCircle2, TriangleAlert, UploadCloud } from "lucide-react";
+import { UploadCloud } from "lucide-react";
 import { uploadSpreadsheet } from "./actions";
+import { ImportResultSummary } from "@/components/import/ImportResultSummary";
 import type { SyncResult } from "@/lib/import/syncRows";
 
 export function UploadForm() {
@@ -45,26 +46,7 @@ export function UploadForm() {
         </button>
       </form>
 
-      {result && (
-        <div className="rounded-lg border border-grid p-4 text-sm dark:border-grid-dark">
-          <div className="mb-2 flex items-center gap-2 font-medium text-ink dark:text-ink-dark">
-            {result.errors.length === 0 ? (
-              <CheckCircle2 className="h-4 w-4 text-status-good" />
-            ) : (
-              <TriangleAlert className="h-4 w-4 text-status-warning" />
-            )}
-            {result.synced} row{result.synced === 1 ? "" : "s"} imported
-            {result.errors.length > 0 && `, ${result.errors.length} skipped`}
-          </div>
-          {result.errors.length > 0 && (
-            <ul className="max-h-48 space-y-1 overflow-y-auto text-xs text-ink-secondary dark:text-ink-secondary-dark">
-              {result.errors.map((err, i) => (
-                <li key={i}>{err}</li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
+      {result && <ImportResultSummary result={result} />}
     </div>
   );
 }

@@ -1,14 +1,17 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { requireRole } from "@/lib/auth/rbac";
 import { logAuditEvent } from "@/lib/audit/log";
 import { runGraphSync } from "@/lib/import/runGraphSync";
 
 /**
- * Scheduled entry point — Vercel Cron calls this twice a day (see the
+ * Scheduled entry point only — Vercel Cron calls this once a day (see the
  * `crons` block in vercel.json). Cron requests carry no user session, so
  * this is gated by a shared secret instead of requireRole: Vercel sends
  * `Authorization: Bearer ${CRON_SECRET}` automatically for cron-triggered
  * requests, matched against the same env var here.
+ *
+ * The admin's manual "Sync now" button does NOT go through this route — it
+ * calls triggerGraphSync() (app/dashboard/admin/import/graph-actions.ts)
+ * directly as a server action, under its own admin-session check.
  */
 export async function GET(request: NextRequest) {
   const auth = request.headers.get("authorization");
@@ -22,22 +25,11 @@ export async function GET(request: NextRequest) {
     actorId: null,
     action: "graph_sync_scheduled",
     resourceType: "graph_connections",
-    metadata: { synced: result.synced, errorCount: result.errors.length },
-  });
-
-  return NextResponse.json(result);
-}
-
-/** Manual "Sync now" button on the Import Data page — requires an admin session. */
-export async function POST() {
-  const admin = await requireRole("admin");
-  const result = await runGraphSync();
-
-  await logAuditEvent({
-    actorId: admin.id,
-    action: "graph_sync_manual",
-    resourceType: "graph_connections",
-    metadata: { synced: result.synced, errorCount: result.errors.length },
+    metadata: {
+      synced: result.synced,
+      errorCount: result.errors.length,
+      skippedBrokerCount: result.skippedByBroker.reduce((s, b) => s + b.count, 0),
+    },
   });
 
   return NextResponse.json(result);

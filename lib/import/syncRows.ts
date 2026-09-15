@@ -57,7 +57,15 @@ async function findOrCreateByName(
   return created.id;
 }
 
-export type SyncResult = { synced: number; errors: string[] };
+export type SyncResult = {
+  synced: number;
+  /** Rows skipped for a reason other than an unmatched broker, capped for display. */
+  errors: string[];
+  /** Rows skipped because their "Broker" text didn't match a staff account, grouped and counted server-side — a spreadsheet with thousands of rows under a handful of broker names should never ship one error string per row to the browser. */
+  skippedByBroker: { name: string; count: number }[];
+};
+
+const MAX_OTHER_ERRORS = 50;
 
 /**
  * Takes a worksheet's rows (header row first) from either source — the
@@ -73,7 +81,11 @@ export async function syncWorksheetRows(
   const supabase = createServiceRoleClient();
 
   if (rows.length < 2) {
-    return { synced: 0, errors: ["The sheet has no data rows below the header."] };
+    return {
+      synced: 0,
+      errors: ["The sheet has no data rows below the header."],
+      skippedByBroker: [],
+    };
   }
 
   const [headerRow, ...dataRows] = rows;
@@ -83,6 +95,7 @@ export async function syncWorksheetRows(
     return {
       synced: 0,
       errors: [`Missing required column(s): ${missing.join(", ")}. Check the header row.`],
+      skippedByBroker: [],
     };
   }
 
@@ -97,6 +110,16 @@ export async function syncWorksheetRows(
 
   let synced = 0;
   const errors: string[] = [];
+  let otherErrorsTruncated = 0;
+  const brokerSkipCounts = new Map<string, number>();
+
+  function recordOtherError(message: string) {
+    if (errors.length < MAX_OTHER_ERRORS) {
+      errors.push(message);
+    } else {
+      otherErrorsTruncated += 1;
+    }
+  }
 
   for (const [rowIndex, row] of dataRows.entries()) {
     const rowNum = rowIndex + 2; // +2: 1-indexed, plus the header row itself
@@ -111,13 +134,12 @@ export async function syncWorksheetRows(
     const ownerBrokerId = brokerByName.get(brokerNameRaw.toLowerCase());
 
     if (!clientNameRaw) {
-      errors.push(`Row ${rowNum}: missing client name, skipped`);
+      recordOtherError(`Row ${rowNum}: missing client name, skipped`);
       continue;
     }
     if (!ownerBrokerId) {
-      errors.push(
-        `Row ${rowNum}: no staff account matches broker "${brokerNameRaw}" — add them under Users & Access first`
-      );
+      const key = brokerNameRaw || "(blank)";
+      brokerSkipCounts.set(key, (brokerSkipCounts.get(key) ?? 0) + 1);
       continue;
     }
 
@@ -164,7 +186,7 @@ export async function syncWorksheetRows(
       .single();
 
     if (clientError || !client) {
-      errors.push(`Row ${rowNum}: failed to save client (${clientError?.message})`);
+      recordOtherError(`Row ${rowNum}: failed to save client (${clientError?.message})`);
       continue;
     }
 
@@ -202,7 +224,7 @@ export async function syncWorksheetRows(
       .single();
 
     if (loanError || !loan) {
-      errors.push(`Row ${rowNum}: failed to save loan (${loanError?.message})`);
+      recordOtherError(`Row ${rowNum}: failed to save loan (${loanError?.message})`);
       continue;
     }
 
@@ -227,12 +249,20 @@ export async function syncWorksheetRows(
     );
 
     if (commissionError) {
-      errors.push(`Row ${rowNum}: failed to save commission figures (${commissionError.message})`);
+      recordOtherError(`Row ${rowNum}: failed to save commission figures (${commissionError.message})`);
       continue;
     }
 
     synced += 1;
   }
 
-  return { synced, errors };
+  if (otherErrorsTruncated > 0) {
+    errors.push(`…and ${otherErrorsTruncated} more row(s) with other errors, not shown.`);
+  }
+
+  const skippedByBroker = [...brokerSkipCounts.entries()]
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count);
+
+  return { synced, errors, skippedByBroker };
 }

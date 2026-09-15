@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { CheckCircle2, Link2, RefreshCw, TriangleAlert } from "lucide-react";
+import { CheckCircle2, Link2, RefreshCw } from "lucide-react";
 import {
   connectWorkbookLink,
   getGraphConnectionStatus,
@@ -9,6 +9,7 @@ import {
   triggerGraphSync,
   type GraphConnectionStatus,
 } from "./graph-actions";
+import { ImportResultSummary } from "@/components/import/ImportResultSummary";
 import type { SyncResult } from "@/lib/import/syncRows";
 
 export function GraphPanel({
@@ -129,26 +130,7 @@ export function GraphPanel({
         {isPending ? "Syncing…" : "Sync now"}
       </button>
 
-      {syncResult && (
-        <div className="rounded-lg border border-grid p-4 text-sm dark:border-grid-dark">
-          <div className="mb-2 flex items-center gap-2 font-medium text-ink dark:text-ink-dark">
-            {syncResult.errors.length === 0 ? (
-              <CheckCircle2 className="h-4 w-4 text-status-good" />
-            ) : (
-              <TriangleAlert className="h-4 w-4 text-status-warning" />
-            )}
-            {syncResult.synced} row{syncResult.synced === 1 ? "" : "s"} synced
-            {syncResult.errors.length > 0 && `, ${syncResult.errors.length} skipped`}
-          </div>
-          {syncResult.errors.length > 0 && (
-            <ul className="max-h-48 space-y-1 overflow-y-auto text-xs text-ink-secondary dark:text-ink-secondary-dark">
-              {syncResult.errors.map((err, i) => (
-                <li key={i}>{err}</li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
+      {syncResult && <ImportResultSummary result={syncResult} />}
     </div>
   );
 }
