@@ -240,34 +240,51 @@ function isInMonth(dateStr: string | null, year: number, month: number): boolean
   return d.getFullYear() === year && d.getMonth() === month;
 }
 
-export async function getSubmissionsAndSettlements(profile: Profile) {
+export async function getMonthlyActivity(profile: Profile) {
   const supabase = await createClient();
-  await auditReportView(profile, "submissions_and_settlements");
+  await auditReportView(profile, "monthly_activity");
 
-  type LoanDates = {
+  type LoanActivity = {
+    enquiry_date: string | null;
     submission_date: string | null;
     settlement_booked_date: string | null;
     settlement_date: string | null;
+    loan_amount: number | null;
   };
 
-  const rows = await selectAllRows<LoanDates>((from, to) =>
+  const rows = await selectAllRows<LoanActivity>((from, to) =>
     (supabase as SupabaseClient)
       .from("loans")
-      .select("submission_date, settlement_booked_date, settlement_date")
-      .range(from, to) as unknown as PromiseLike<{ data: LoanDates[] | null; error: unknown }>
+      .select("enquiry_date, submission_date, settlement_booked_date, settlement_date, loan_amount")
+      .range(from, to) as unknown as PromiseLike<{ data: LoanActivity[] | null; error: unknown }>
   );
 
-  // "Settled this month" counts a loan once even if both its booked and
-  // actual settlement dates land in the same month — booked vs. settled
-  // are two views of the same event, not two events.
-  function settledInMonth(row: LoanDates, year: number, month: number): boolean {
+  // "Settled this month" (count) treats booked vs. actually-settled as two
+  // views of the same event, not two events — a loan counts once even if
+  // both dates land in the same month.
+  function settledInMonth(row: LoanActivity, year: number, month: number): boolean {
     return (
       isInMonth(row.settlement_booked_date, year, month) ||
       isInMonth(row.settlement_date, year, month)
     );
   }
 
+  // Settlement $ value for a month: the actual settlement_date is
+  // authoritative once it's recorded; settlement_booked_date is only used
+  // as a fallback for a loan that's scheduled but not yet marked settled
+  // (e.g. the current month) — so a loan's value is never counted twice
+  // across two different months.
+  function settlementValueForMonth(row: LoanActivity, year: number, month: number): number {
+    if (row.settlement_date) {
+      return isInMonth(row.settlement_date, year, month) ? row.loan_amount ?? 0 : 0;
+    }
+    return isInMonth(row.settlement_booked_date, year, month) ? row.loan_amount ?? 0 : 0;
+  }
+
   const now = new Date();
+  const leadsThisMonth = rows.filter((r) =>
+    isInMonth(r.enquiry_date, now.getFullYear(), now.getMonth())
+  ).length;
   const submissionsThisMonth = rows.filter((r) =>
     isInMonth(r.submission_date, now.getFullYear(), now.getMonth())
   ).length;
@@ -275,16 +292,36 @@ export async function getSubmissionsAndSettlements(profile: Profile) {
     settledInMonth(r, now.getFullYear(), now.getMonth())
   ).length;
 
-  const monthly: { label: string; submissions: number; settlements: number }[] = [];
+  const leadsMonthly: { label: string; value: number }[] = [];
+  const submissionsMonthly: { label: string; value: number }[] = [];
+  const settlementValueMonthly: { label: string; value: number }[] = [];
+
   for (let i = 11; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     const label = d.toLocaleString("en-AU", { month: "short" });
-    const submissions = rows.filter((r) =>
-      isInMonth(r.submission_date, d.getFullYear(), d.getMonth())
-    ).length;
-    const settlements = rows.filter((r) => settledInMonth(r, d.getFullYear(), d.getMonth())).length;
-    monthly.push({ label, submissions, settlements });
+    const year = d.getFullYear();
+    const month = d.getMonth();
+
+    leadsMonthly.push({
+      label,
+      value: rows.filter((r) => isInMonth(r.enquiry_date, year, month)).length,
+    });
+    submissionsMonthly.push({
+      label,
+      value: rows.filter((r) => isInMonth(r.submission_date, year, month)).length,
+    });
+    settlementValueMonthly.push({
+      label,
+      value: rows.reduce((sum, r) => sum + settlementValueForMonth(r, year, month), 0),
+    });
   }
 
-  return { submissionsThisMonth, settlementsThisMonth, monthly };
+  return {
+    leadsThisMonth,
+    submissionsThisMonth,
+    settlementsThisMonth,
+    leadsMonthly,
+    submissionsMonthly,
+    settlementValueMonthly,
+  };
 }

@@ -18,8 +18,24 @@ const CURRENCY = new Intl.NumberFormat("en-AU", {
   maximumFractionDigits: 0,
 });
 
-/** Single-series magnitude-over-time chart. One series needs no legend — the card title names it. */
-export function TrendArea({ data }: { data: Point[] }) {
+const COUNT = new Intl.NumberFormat("en-AU", { maximumFractionDigits: 0 });
+
+/**
+ * Single-series magnitude-over-time chart. One series needs no legend — the
+ * card title names it. Defaults to currency formatting (its original use,
+ * settlement value); pass `format="count"` for a plain-number series like
+ * leads or submissions, so the axis and tooltip don't show a $ sign on a
+ * chart of loan counts.
+ */
+export function TrendArea({
+  data,
+  format = "currency",
+}: {
+  data: Point[];
+  format?: "currency" | "count";
+}) {
+  const formatValue = format === "count" ? (v: number) => COUNT.format(v) : (v: number) => CURRENCY.format(v);
+
   return (
     <ResponsiveContainer width="100%" height={260}>
       <AreaChart data={data} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
@@ -40,11 +56,12 @@ export function TrendArea({ data }: { data: Point[] }) {
           axisLine={false}
           tickLine={false}
           tick={{ fill: "#898781", fontSize: 12 }}
-          tickFormatter={(v) => CURRENCY.format(v)}
-          width={72}
+          tickFormatter={formatValue}
+          allowDecimals={format === "currency"}
+          width={format === "count" ? 32 : 72}
         />
         <Tooltip
-          formatter={(value) => CURRENCY.format(Number(value))}
+          formatter={(value) => formatValue(Number(value))}
           contentStyle={{
             borderRadius: 8,
             border: "1px solid #e1e0d9",
