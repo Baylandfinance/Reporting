@@ -10,13 +10,13 @@ export async function uploadSpreadsheet(formData: FormData): Promise<SyncResult>
 
   const file = formData.get("file");
   if (!(file instanceof File) || file.size === 0) {
-    return { synced: 0, errors: ["No file was selected."], skippedByBroker: [] };
+    return { synced: 0, errors: ["No file was selected."], unattributedByBroker: [] };
   }
   if (!file.name.toLowerCase().endsWith(".xlsx")) {
     return {
       synced: 0,
       errors: ["Please upload a .xlsx file (the format Excel Online saves in)."],
-      skippedByBroker: [],
+      unattributedByBroker: [],
     };
   }
 
@@ -34,7 +34,7 @@ export async function uploadSpreadsheet(formData: FormData): Promise<SyncResult>
       worksheetName,
       synced: result.synced,
       errorCount: result.errors.length,
-      skippedBrokerCount: result.skippedByBroker.reduce((s, b) => s + b.count, 0),
+      unattributedCount: result.unattributedByBroker.reduce((s, b) => s + b.count, 0),
     },
   });
 

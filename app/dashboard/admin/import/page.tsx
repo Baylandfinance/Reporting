@@ -21,7 +21,7 @@ export default async function ImportPage() {
       <main className="flex-1 space-y-6 p-6">
         <Card
           title="Automatic sync from Excel Online"
-          subtitle="Connects directly to your workbook and refreshes twice a day."
+          subtitle="Connects directly to your workbook and refreshes once a day."
         >
           <GraphPanel initialAccountConnected={accountConnected} initialStatus={status} />
         </Card>
@@ -42,8 +42,10 @@ export default async function ImportPage() {
               optional.
             </li>
             <li>
-              The name in the <code>Broker</code> column must exactly match a staff member&apos;s
-              name under <strong>Users &amp; Access</strong> — otherwise that row is skipped.
+              If the name in the <code>Broker</code> column doesn&apos;t match a staff
+              member&apos;s name under <strong>Users &amp; Access</strong>, the row still
+              imports — it just won&apos;t be counted as that broker&apos;s own book until you
+              add them.
             </li>
             <li>
               Uploading again is safe: rows are matched and updated, not duplicated, so you can

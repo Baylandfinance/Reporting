@@ -21,13 +21,17 @@ export async function runGraphSync(): Promise<SyncResult> {
     .single();
 
   if (!connection) {
-    return { synced: 0, errors: ["No Microsoft 365 account is connected yet."], skippedByBroker: [] };
+    return {
+      synced: 0,
+      errors: ["No Microsoft 365 account is connected yet."],
+      unattributedByBroker: [],
+    };
   }
   if (!connection.drive_id || !connection.drive_item_id) {
     return {
       synced: 0,
       errors: ["Connected, but no workbook link has been saved yet."],
-      skippedByBroker: [],
+      unattributedByBroker: [],
     };
   }
 

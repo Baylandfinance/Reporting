@@ -59,10 +59,16 @@ async function findOrCreateByName(
 
 export type SyncResult = {
   synced: number;
-  /** Rows skipped for a reason other than an unmatched broker, capped for display. */
+  /** Rows that failed to save outright, capped for display — genuine errors, not unmatched brokers. */
   errors: string[];
-  /** Rows skipped because their "Broker" text didn't match a staff account, grouped and counted server-side — a spreadsheet with thousands of rows under a handful of broker names should never ship one error string per row to the browser. */
-  skippedByBroker: { name: string; count: number }[];
+  /**
+   * Rows that DID import, but whose "Broker" text didn't match any staff
+   * account — they're saved with owner_broker_id = null and are visible to
+   * admins now, not blocked on someone creating every historical name a
+   * login. Grouped and counted server-side so a 3,500-row sheet under a
+   * handful of names doesn't ship one line per row to the browser.
+   */
+  unattributedByBroker: { name: string; count: number }[];
 };
 
 const MAX_OTHER_ERRORS = 50;
@@ -84,7 +90,7 @@ export async function syncWorksheetRows(
     return {
       synced: 0,
       errors: ["The sheet has no data rows below the header."],
-      skippedByBroker: [],
+      unattributedByBroker: [],
     };
   }
 
@@ -95,7 +101,7 @@ export async function syncWorksheetRows(
     return {
       synced: 0,
       errors: [`Missing required column(s): ${missing.join(", ")}. Check the header row.`],
-      skippedByBroker: [],
+      unattributedByBroker: [],
     };
   }
 
@@ -111,7 +117,7 @@ export async function syncWorksheetRows(
   let synced = 0;
   const errors: string[] = [];
   let otherErrorsTruncated = 0;
-  const brokerSkipCounts = new Map<string, number>();
+  const unattributedCounts = new Map<string, number>();
 
   function recordOtherError(message: string) {
     if (errors.length < MAX_OTHER_ERRORS) {
@@ -131,7 +137,7 @@ export async function syncWorksheetRows(
 
     const clientNameRaw = get("client name");
     const brokerNameRaw = get("broker");
-    const ownerBrokerId = brokerByName.get(brokerNameRaw.toLowerCase());
+    const ownerBrokerId = brokerByName.get(brokerNameRaw.toLowerCase()) ?? null;
 
     if (!clientNameRaw) {
       recordOtherError(`Row ${rowNum}: missing client name, skipped`);
@@ -139,8 +145,7 @@ export async function syncWorksheetRows(
     }
     if (!ownerBrokerId) {
       const key = brokerNameRaw || "(blank)";
-      brokerSkipCounts.set(key, (brokerSkipCounts.get(key) ?? 0) + 1);
-      continue;
+      unattributedCounts.set(key, (unattributedCounts.get(key) ?? 0) + 1);
     }
 
     const leadSourceId = await findOrCreateByName(
@@ -171,6 +176,12 @@ export async function syncWorksheetRows(
     // it from the upsert payload (rather than setting it to null) means a
     // classification a broker has since set manually in the UI survives
     // every future import instead of being wiped back to "Unclassified".
+    // Note: the (owner_broker_id, full_name) uniqueness this upserts against
+    // doesn't fire for a null owner_broker_id (standard SQL: NULL is never
+    // "equal" to another NULL for a unique constraint), so two unattributed
+    // rows sharing a client name become two client records rather than one
+    // — an accepted rough edge of importing without full attribution, to
+    // be cleaned up once the row is reassigned to a real broker.
     const { data: client, error: clientError } = await supabase
       .from("clients")
       .upsert(
@@ -179,6 +190,7 @@ export async function syncWorksheetRows(
           referrer_name: get("referrer") || null,
           lead_source_id: leadSourceId,
           owner_broker_id: ownerBrokerId,
+          broker_name_raw: brokerNameRaw || null,
         },
         { onConflict: "owner_broker_id,full_name" }
       )
@@ -200,6 +212,7 @@ export async function syncWorksheetRows(
           lender_id: lenderId,
           brokerage_id: brokerageId,
           owner_broker_id: ownerBrokerId,
+          broker_name_raw: brokerNameRaw || null,
           pipeline_stage_id: stageId,
           transaction_type_raw: get("transaction type") || null,
           property_state: propertyState,
@@ -260,9 +273,9 @@ export async function syncWorksheetRows(
     errors.push(`…and ${otherErrorsTruncated} more row(s) with other errors, not shown.`);
   }
 
-  const skippedByBroker = [...brokerSkipCounts.entries()]
+  const unattributedByBroker = [...unattributedCounts.entries()]
     .map(([name, count]) => ({ name, count }))
     .sort((a, b) => b.count - a.count);
 
-  return { synced, errors, skippedByBroker };
+  return { synced, errors, unattributedByBroker };
 }

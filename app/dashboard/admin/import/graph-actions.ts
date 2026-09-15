@@ -116,7 +116,7 @@ export async function triggerGraphSync(): Promise<SyncResult> {
     metadata: {
       synced: result.synced,
       errorCount: result.errors.length,
-      skippedBrokerCount: result.skippedByBroker.reduce((s, b) => s + b.count, 0),
+      unattributedCount: result.unattributedByBroker.reduce((s, b) => s + b.count, 0),
     },
   });
 

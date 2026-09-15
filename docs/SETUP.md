@@ -81,11 +81,12 @@ Administrator rights in Entra ID (Azure AD) to do it.
    **Save**. The app resolves the link to the actual file via Microsoft
    Graph's Shares API automatically — no Graph Explorer, no hunting for an
    item ID by hand.
-9. Click **Sync now** to run it once immediately. Check the results panel
-   before trusting the numbers — it lists exactly which rows didn't map
-   and why (usually: a broker name in the sheet that doesn't match any
-   staff account's `full_name` in **Users & Access** — fix the mismatch on
-   either side and sync again).
+9. Click **Sync now** to run it once immediately. Rows still import even
+   if a "Broker" name doesn't match a staff account yet — they land as
+   unattributed (visible to admins, not tied to a specific broker's own
+   book) rather than being skipped. The results panel groups these by
+   name so you can see at a glance which staff accounts are still worth
+   creating, without blocking the import on it.
 10. From then on it also runs automatically once a day (`vercel.json`'s
     `crons` block — currently ~7am Melbourne time; shifts by an hour across
     daylight saving since Vercel Cron runs on UTC). **This is set to once,
@@ -117,8 +118,12 @@ sheet:
 `Commission Payment Date`, `Refferal Commission Payment Date`,
 `Clawback`, `Clawback Date`, `Comment`.
 
-Only `Client Name`, `Status` and `Broker` are strictly required for a row
-to sync at all — everything else is optional and left blank if missing.
+`Client Name` and `Status` must be present for a row to import at all.
+`Broker` should be present too, but if its value doesn't match a staff
+account's `full_name` in **Users & Access**, the row still imports —
+it's saved as "unattributed" (visible to admins, not yet counted as any
+specific broker's own book) rather than being skipped. Everything else is
+optional and left blank if missing.
 
 Things worth cleaning up in the source sheet before relying on this
 long-term (found in the sample you provided, not hypothetical):

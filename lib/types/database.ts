@@ -74,13 +74,13 @@ export interface Database {
           client_type: ClientType | null;
           lead_source_id: string | null;
           referrer_name: string | null;
-          owner_broker_id: string;
+          owner_broker_id: string | null;
+          broker_name_raw: string | null;
           created_at: string;
           updated_at: string;
         };
         Insert: Partial<Database["public"]["Tables"]["clients"]["Row"]> & {
           full_name: string;
-          owner_broker_id: string;
         };
         Update: Partial<Database["public"]["Tables"]["clients"]["Row"]>;
         Relationships: [];
@@ -91,7 +91,8 @@ export interface Database {
           client_id: string;
           lender_id: string | null;
           brokerage_id: string | null;
-          owner_broker_id: string;
+          owner_broker_id: string | null;
+          broker_name_raw: string | null;
           pipeline_stage_id: string | null;
           transaction_type_raw: string | null;
           property_state: AuState | null;
@@ -115,7 +116,6 @@ export interface Database {
         };
         Insert: Partial<Database["public"]["Tables"]["loans"]["Row"]> & {
           client_id: string;
-          owner_broker_id: string;
         };
         Update: Partial<Database["public"]["Tables"]["loans"]["Row"]>;
         Relationships: [];
