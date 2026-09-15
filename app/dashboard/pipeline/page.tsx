@@ -77,7 +77,7 @@ export default async function PipelinePage() {
 
         <Card
           title="Pending settlements"
-          subtitle="Unconditionally approved, not yet settled — sorted by booked settlement date"
+          subtitle="Approved in the last 12 months, booked to settle in the future — sorted by booked settlement date"
         >
           {pendingSettlements.length === 0 ? (
             <div className="flex h-[120px] items-center justify-center text-sm text-ink-muted">

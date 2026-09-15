@@ -451,13 +451,20 @@ export async function getPendingSettlements(profile: Profile): Promise<PendingSe
   const supabase = (await createClient()) as SupabaseClient;
   const auditPromise = startAuditReportView(profile, "pending_settlements");
 
+  const today = new Date();
+  const todayISO = today.toISOString().slice(0, 10);
+  const twelveMonthsAgoISO = new Date(today.getFullYear() - 1, today.getMonth(), today.getDate())
+    .toISOString()
+    .slice(0, 10);
+
   const { data } = await supabase
     .from("loans")
     .select(
       "loan_amount, unconditional_approval_date, settlement_booked_date, clients(full_name), lenders(name)"
     )
-    .not("unconditional_approval_date", "is", null)
-    .is("settlement_date", null)
+    .gte("unconditional_approval_date", twelveMonthsAgoISO) // approved in the last 12 months
+    .gte("settlement_booked_date", todayISO) // booked to settle in the future (excludes no-date rows too)
+    .is("settlement_date", null) // not already settled
     .order("settlement_booked_date", { ascending: true, nullsFirst: false })
     .range(0, 499);
 
