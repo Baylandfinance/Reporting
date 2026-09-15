@@ -18,15 +18,15 @@ export function InviteUserForm() {
     setSuccess(null);
 
     startTransition(async () => {
-      try {
-        await inviteUser(fullName, email, role);
-        setSuccess(`Invite sent to ${email}.`);
-        setFullName("");
-        setEmail("");
-        setRole("broker");
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Couldn't send the invite.");
+      const result = await inviteUser(fullName, email, role);
+      if (!result.ok) {
+        setError(result.error);
+        return;
       }
+      setSuccess(`Invite sent to ${email}.`);
+      setFullName("");
+      setEmail("");
+      setRole("broker");
     });
   }
 

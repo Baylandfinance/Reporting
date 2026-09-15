@@ -8,19 +8,31 @@ import type { UserRole } from "@/lib/types/database";
 
 const VALID_ROLES: UserRole[] = ["admin", "broker", "assistant"];
 
-export async function inviteUser(fullName: string, email: string, role: UserRole) {
+/**
+ * Returns a result object instead of throwing. Next.js's Server Action
+ * error channel is meant for genuinely exceptional failures, and in
+ * production it can mangle a thrown Error's message on the way back to the
+ * client (surfacing React's own generic minified-error text instead of the
+ * message we set). Expected, user-facing outcomes — duplicate email, rate
+ * limit, bad input — should never go through that path.
+ */
+export async function inviteUser(
+  fullName: string,
+  email: string,
+  role: UserRole
+): Promise<{ ok: true } | { ok: false; error: string }> {
   const admin = await requireRole("admin");
 
   const trimmedName = fullName.trim();
   const trimmedEmail = email.trim().toLowerCase();
-  if (!trimmedName) throw new Error("Name is required.");
+  if (!trimmedName) return { ok: false, error: "Name is required." };
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
-    throw new Error("Enter a valid email address.");
+    return { ok: false, error: "Enter a valid email address." };
   }
-  if (!VALID_ROLES.includes(role)) throw new Error("Invalid role.");
+  if (!VALID_ROLES.includes(role)) return { ok: false, error: "Invalid role." };
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL;
-  if (!appUrl) throw new Error("NEXT_PUBLIC_APP_URL is not configured.");
+  if (!appUrl) return { ok: false, error: "NEXT_PUBLIC_APP_URL is not configured." };
 
   const supabase = createServiceRoleClient();
 
@@ -33,11 +45,13 @@ export async function inviteUser(fullName: string, email: string, role: UserRole
     // Supabase's shared email sender has a very low rate limit — surface
     // that distinctly so the admin doesn't mistake it for a real failure.
     if (error.message.toLowerCase().includes("rate limit")) {
-      throw new Error(
-        "Email rate limit exceeded. Wait an hour and try again, or set up custom SMTP for reliable sending."
-      );
+      return {
+        ok: false,
+        error:
+          "Email rate limit exceeded. Wait an hour and try again, or set up custom SMTP for reliable sending.",
+      };
     }
-    throw new Error(error.message);
+    return { ok: false, error: error.message };
   }
 
   const newUserId = data.user?.id;
@@ -49,7 +63,7 @@ export async function inviteUser(fullName: string, email: string, role: UserRole
       .from("profiles")
       .update({ role })
       .eq("id", newUserId);
-    if (roleError) throw new Error(roleError.message);
+    if (roleError) return { ok: false, error: roleError.message };
   }
 
   await logAuditEvent({
@@ -61,6 +75,7 @@ export async function inviteUser(fullName: string, email: string, role: UserRole
   });
 
   revalidatePath("/dashboard/admin/users");
+  return { ok: true };
 }
 
 export async function updateUserRole(userId: string, role: UserRole) {
