@@ -3,6 +3,7 @@ import { logAuditEvent } from "@/lib/audit/log";
 import type { Database } from "@/lib/types/database";
 
 type Profile = Database["public"]["Tables"]["profiles"]["Row"];
+type SupabaseClient = Awaited<ReturnType<typeof createClient>>;
 
 /**
  * All report queries go through the anon-key server client, so RLS applies:
@@ -19,6 +20,31 @@ async function auditReportView(profile: Profile, report: string) {
   });
 }
 
+const PAGE_SIZE = 1000;
+
+/**
+ * Supabase's REST API caps any single request at 1,000 rows by default,
+ * silently — a `.select()` on a table with 3,500 rows returns only the
+ * first 1,000 with no error and no indication of truncation. Every report
+ * here aggregates in JS rather than in SQL, so it must page through the
+ * full result set itself rather than trusting one `.select()` to return
+ * everything.
+ */
+async function selectAllRows<T>(
+  query: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>
+): Promise<T[]> {
+  const all: T[] = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await query(from, from + PAGE_SIZE - 1);
+    if (error || !data) break;
+    all.push(...data);
+    if (data.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+  return all;
+}
+
 type LoanForPipeline = {
   loan_amount: number | null;
   settlement_date: string | null;
@@ -30,11 +56,12 @@ export async function getPipelineOverview(profile: Profile) {
   const supabase = await createClient();
   await auditReportView(profile, "pipeline_overview");
 
-  const { data } = await supabase
-    .from("loans")
-    .select("loan_amount, settlement_date, application_date, pipeline_stages(name, category)");
-
-  const rows = (data ?? []) as unknown as LoanForPipeline[];
+  const rows = await selectAllRows<LoanForPipeline>((from, to) =>
+    (supabase as SupabaseClient)
+      .from("loans")
+      .select("loan_amount, settlement_date, application_date, pipeline_stages(name, category)")
+      .range(from, to) as unknown as PromiseLike<{ data: LoanForPipeline[] | null; error: unknown }>
+  );
 
   const now = new Date();
   const settledThisMonth = rows.filter((l) => {
@@ -68,6 +95,14 @@ export async function getPipelineOverview(profile: Profile) {
     stageCounts[name] = (stageCounts[name] ?? 0) + 1;
   }
 
+  const sortedStages = Object.entries(stageCounts)
+    .map(([label, value]) => ({ label, value }))
+    .sort((a, b) => b.value - a.value);
+  const topStages = sortedStages.slice(0, 5);
+  const otherStagesTotal = sortedStages.slice(5).reduce((s, x) => s + x.value, 0);
+  const stageBreakdown =
+    otherStagesTotal > 0 ? [...topStages, { label: "Other", value: otherStagesTotal }] : topStages;
+
   // Settlement value by month, last 12 months.
   const monthly: { label: string; value: number }[] = [];
   for (let i = 11; i >= 0; i--) {
@@ -88,10 +123,7 @@ export async function getPipelineOverview(profile: Profile) {
     settledThisMonthValue: settledThisMonth.reduce((s, l) => s + (l.loan_amount ?? 0), 0),
     conversionRate,
     avgLoanSize,
-    stageBreakdown: Object.entries(stageCounts)
-      .map(([label, value]) => ({ label, value }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 6),
+    stageBreakdown,
     monthlySettlements: monthly,
     totalLoans: rows.length,
     settledCount,
@@ -104,13 +136,20 @@ export async function getCommissionSummary(profile: Profile) {
   const supabase = await createClient();
   await auditReportView(profile, "commission_summary");
 
-  const { data } = await supabase
-    .from("loan_commissions")
-    .select(
-      "upfront_commission, trail_commission, clawback_amount, commission_payment_date"
-    );
+  type CommissionRow = {
+    upfront_commission: number | null;
+    trail_commission: number | null;
+    clawback_amount: number | null;
+    commission_payment_date: string | null;
+  };
 
-  const rows = data ?? [];
+  const rows = await selectAllRows<CommissionRow>((from, to) =>
+    (supabase as SupabaseClient)
+      .from("loan_commissions")
+      .select("upfront_commission, trail_commission, clawback_amount, commission_payment_date")
+      .range(from, to) as unknown as PromiseLike<{ data: CommissionRow[] | null; error: unknown }>
+  );
+
   const paid = rows.filter((c) => c.commission_payment_date);
   const expected = rows.filter((c) => !c.commission_payment_date);
 
@@ -131,12 +170,14 @@ export async function getLenderMix(profile: Profile) {
   const supabase = await createClient();
   await auditReportView(profile, "lender_mix");
 
-  const { data } = await supabase.from("loans").select("loan_amount, lender_id, lenders(name)");
+  type LoanForLenderMix = { loan_amount: number | null; lenders: { name: string } | null };
 
-  const rows = (data ?? []) as unknown as {
-    loan_amount: number | null;
-    lenders: { name: string } | null;
-  }[];
+  const rows = await selectAllRows<LoanForLenderMix>((from, to) =>
+    (supabase as SupabaseClient)
+      .from("loans")
+      .select("loan_amount, lender_id, lenders(name)")
+      .range(from, to) as unknown as PromiseLike<{ data: LoanForLenderMix[] | null; error: unknown }>
+  );
 
   const byLender: Record<string, { count: number; value: number }> = {};
   for (const l of rows) {
@@ -159,14 +200,17 @@ export async function getReferralBreakdown(profile: Profile) {
   const supabase = await createClient();
   await auditReportView(profile, "referral_breakdown");
 
-  const { data } = await supabase
-    .from("clients")
-    .select("client_type, lead_source_id, lead_sources(name)");
-
-  const rows = (data ?? []) as unknown as {
+  type ClientForReferral = {
     client_type: string | null;
     lead_sources: { name: string } | null;
-  }[];
+  };
+
+  const rows = await selectAllRows<ClientForReferral>((from, to) =>
+    (supabase as SupabaseClient)
+      .from("clients")
+      .select("client_type, lead_source_id, lead_sources(name)")
+      .range(from, to) as unknown as PromiseLike<{ data: ClientForReferral[] | null; error: unknown }>
+  );
 
   const byReferral: Record<string, number> = {};
   for (const c of rows) {
