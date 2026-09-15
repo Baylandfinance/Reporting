@@ -1,6 +1,6 @@
 {
   "regions": ["syd1"],
   "crons": [
-    { "path": "/api/graph/sync", "schedule": "0 21,7 * * *" }
+    { "path": "/api/graph/sync", "schedule": "0 21 * * *" }
   ]
 }

@@ -86,13 +86,16 @@ Administrator rights in Entra ID (Azure AD) to do it.
    and why (usually: a broker name in the sheet that doesn't match any
    staff account's `full_name` in **Users & Access** — fix the mismatch on
    either side and sync again).
-10. From then on it also runs automatically twice a day (`vercel.json`'s
-    `crons` block — currently ~7am and ~5pm Melbourne time; shifts by an
-    hour across daylight saving since Vercel Cron runs on UTC). **Note:**
-    Vercel's free "Hobby" plan limits cron jobs to once a day — if you're
-    on Hobby, only one of the two daily runs will actually fire, or you'll
-    need to upgrade to a paid plan for true twice-daily. The **Sync now**
-    button always works regardless of plan.
+10. From then on it also runs automatically once a day (`vercel.json`'s
+    `crons` block — currently ~7am Melbourne time; shifts by an hour across
+    daylight saving since Vercel Cron runs on UTC). **This is set to once,
+    not twice, a day on purpose:** Vercel's free "Hobby" plan rejects a
+    twice-daily schedule outright (the deploy itself fails, not just a
+    missed run). If you want genuine twice-daily automatic syncing, that
+    needs a paid Vercel plan — change the `schedule` in `vercel.json` to
+    `"0 21,7 * * *"` once you've upgraded. Until then, the **Sync now**
+    button on the Import Data page covers the gap — click it whenever you
+    want an up-to-date pull outside the daily automatic run.
 
 ## Excel Online sheet format
 
