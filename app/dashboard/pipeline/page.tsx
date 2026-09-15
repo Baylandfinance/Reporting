@@ -5,11 +5,22 @@ import { StatTile } from "@/components/charts/StatTile";
 import { Card } from "@/components/charts/Card";
 import { TrendArea } from "@/components/charts/TrendArea";
 import { DonutBreakdown } from "@/components/charts/DonutBreakdown";
-import { getPipelineAndActivity } from "@/lib/reports/queries";
+import { getPipelineAndActivity, getPendingSettlements } from "@/lib/reports/queries";
+
+const CURRENCY = new Intl.NumberFormat("en-AU", {
+  style: "currency",
+  currency: "AUD",
+  maximumFractionDigits: 0,
+});
+
+const DATE = new Intl.DateTimeFormat("en-AU", { day: "numeric", month: "short", year: "numeric" });
 
 export default async function PipelinePage() {
   const profile = await requireSessionProfile();
-  const data = await getPipelineAndActivity(profile);
+  const [data, pendingSettlements] = await Promise.all([
+    getPipelineAndActivity(profile),
+    getPendingSettlements(profile),
+  ]);
 
   return (
     <>
@@ -55,12 +66,60 @@ export default async function PipelinePage() {
 
         <Card
           title="Settlement value"
-          subtitle="Booked and settled loan value per month, last 12 months — a loan counts under its actual settlement date once recorded, otherwise its booked date"
+          subtitle="Actually settled loan value per month, last 12 months"
         >
           {data.totalLoans === 0 ? (
             <EmptyState />
           ) : (
             <TrendArea data={data.settlementValueMonthly} format="currency" />
+          )}
+        </Card>
+
+        <Card
+          title="Pending settlements"
+          subtitle="Unconditionally approved, not yet settled — sorted by booked settlement date"
+        >
+          {pendingSettlements.length === 0 ? (
+            <div className="flex h-[120px] items-center justify-center text-sm text-ink-muted">
+              Nothing unconditionally approved is waiting on settlement right now.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-ink-muted">
+                    <th className="pb-2 font-medium">Client</th>
+                    <th className="pb-2 font-medium">Lender</th>
+                    <th className="pb-2 font-medium text-right">Amount</th>
+                    <th className="pb-2 font-medium">Unconditional approval</th>
+                    <th className="pb-2 font-medium">Booked settlement</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-grid dark:divide-grid-dark">
+                  {pendingSettlements.map((row, i) => (
+                    <tr key={i}>
+                      <td className="py-2.5 text-ink dark:text-ink-dark">{row.clientName}</td>
+                      <td className="py-2.5 text-ink-secondary dark:text-ink-secondary-dark">
+                        {row.lenderName}
+                      </td>
+                      <td className="py-2.5 text-right font-medium tabular-nums text-ink dark:text-ink-dark">
+                        {row.loanAmount != null ? CURRENCY.format(row.loanAmount) : "—"}
+                      </td>
+                      <td className="py-2.5 text-ink-secondary dark:text-ink-secondary-dark">
+                        {row.unconditionalApprovalDate
+                          ? DATE.format(new Date(row.unconditionalApprovalDate))
+                          : "—"}
+                      </td>
+                      <td className="py-2.5 text-ink-secondary dark:text-ink-secondary-dark">
+                        {row.settlementBookedDate
+                          ? DATE.format(new Date(row.settlementBookedDate))
+                          : <span className="italic text-ink-muted">Not booked</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </Card>
 

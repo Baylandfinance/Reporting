@@ -10,10 +10,13 @@ type SupabaseClient = Awaited<ReturnType<typeof createClient>>;
  * a broker's numbers are already scoped to their own book by the database,
  * not by anything in this file. Each function logs one audit event per
  * report view rather than per row — enough to reconstruct "who looked at
- * the book, and when" without flooding audit_log on every render.
+ * the book, and when" without flooding audit_log on every render. The audit
+ * write runs concurrently with the actual data fetch (started, then awaited
+ * together at the end) rather than being awaited up front, so it's no
+ * longer an extra network round trip sitting in front of every report.
  */
-async function auditReportView(profile: Profile, report: string) {
-  await logAuditEvent({
+function startAuditReportView(profile: Profile, report: string): Promise<void> {
+  return logAuditEvent({
     actorId: profile.id,
     action: "view_report",
     resourceType: report,
@@ -58,41 +61,70 @@ async function selectAllRows<T>(
   return all;
 }
 
+/**
+ * Small reference tables (pipeline_stages, lenders, lead_sources — tens to
+ * a few hundred rows) are fetched once as id->row maps instead of embedded
+ * on every row of a large query (`loans.select("...,lenders(name)")`) —
+ * embedding asks Postgres to join the reference table in for each of
+ * thousands of rows; a separate one-off fetch plus a JS Map lookup does the
+ * same join far more cheaply at this scale.
+ */
+async function fetchLookup(
+  supabase: SupabaseClient,
+  table: "pipeline_stages" | "lenders" | "lead_sources",
+  columns: string
+): Promise<Map<string, Record<string, unknown>>> {
+  const { data } = await supabase.from(table).select(columns);
+  const map = new Map<string, Record<string, unknown>>();
+  for (const row of (data ?? []) as unknown as { id: string }[]) {
+    map.set(row.id, row as unknown as Record<string, unknown>);
+  }
+  return map;
+}
+
 export async function getPipelineOverview(profile: Profile) {
   const supabase = (await createClient()) as SupabaseClient;
-  await auditReportView(profile, "pipeline_overview");
+  const auditPromise = startAuditReportView(profile, "pipeline_overview");
 
   type LoanForPipeline = {
     loan_amount: number | null;
     settlement_date: string | null;
-    application_date: string | null;
-    pipeline_stages: { name: string; category: string } | null;
+    pipeline_stage_id: string | null;
   };
 
-  const total = await countRows(supabase, "loans");
+  const [total, stagesById] = await Promise.all([
+    countRows(supabase, "loans"),
+    fetchLookup(supabase, "pipeline_stages", "id, name, category"),
+  ]);
   const rows = await selectAllRows<LoanForPipeline>(total, (from, to) =>
     supabase
       .from("loans")
-      .select("loan_amount, settlement_date, application_date, pipeline_stages(name, category)")
+      .select("loan_amount, settlement_date, pipeline_stage_id")
       .range(from, to) as unknown as PromiseLike<{ data: LoanForPipeline[] | null; error: unknown }>
   );
 
+  const categoryOf = (l: LoanForPipeline) =>
+    l.pipeline_stage_id ? (stagesById.get(l.pipeline_stage_id)?.category as string | undefined) : undefined;
+  const nameOf = (l: LoanForPipeline) =>
+    (l.pipeline_stage_id && (stagesById.get(l.pipeline_stage_id)?.name as string | undefined)) ??
+    "Unclassified";
+
   const now = new Date();
   const settledThisMonth = rows.filter((l) => {
-    if (!l.settlement_date || l.pipeline_stages?.category !== "settled") return false;
+    if (!l.settlement_date || categoryOf(l) !== "settled") return false;
     const d = new Date(l.settlement_date);
     return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
   });
 
   const totalPipelineValue = rows
     .filter((l) => {
-      const cat = l.pipeline_stages?.category;
+      const cat = categoryOf(l);
       return cat === "lead" || cat === "active" || cat === "on_hold";
     })
     .reduce((sum, l) => sum + (l.loan_amount ?? 0), 0);
 
-  const settledCount = rows.filter((l) => l.pipeline_stages?.category === "settled").length;
-  const lostCount = rows.filter((l) => l.pipeline_stages?.category === "lost").length;
+  const settledCount = rows.filter((l) => categoryOf(l) === "settled").length;
+  const lostCount = rows.filter((l) => categoryOf(l) === "lost").length;
   const conversionRate =
     settledCount + lostCount > 0
       ? Math.round((settledCount / (settledCount + lostCount)) * 100)
@@ -105,7 +137,7 @@ export async function getPipelineOverview(profile: Profile) {
 
   const stageCounts: Record<string, number> = {};
   for (const l of rows) {
-    const name = l.pipeline_stages?.name ?? "Unclassified";
+    const name = nameOf(l);
     stageCounts[name] = (stageCounts[name] ?? 0) + 1;
   }
 
@@ -117,20 +149,22 @@ export async function getPipelineOverview(profile: Profile) {
   const stageBreakdown =
     otherStagesTotal > 0 ? [...topStages, { label: "Other", value: otherStagesTotal }] : topStages;
 
-  // Settlement value by month, last 12 months.
+  // Settlement value by month, last 12 months — actually-settled loans only.
   const monthly: { label: string; value: number }[] = [];
   for (let i = 11; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     const label = d.toLocaleString("en-AU", { month: "short" });
     const value = rows
       .filter((l) => {
-        if (!l.settlement_date || l.pipeline_stages?.category !== "settled") return false;
+        if (!l.settlement_date || categoryOf(l) !== "settled") return false;
         const sd = new Date(l.settlement_date);
         return sd.getMonth() === d.getMonth() && sd.getFullYear() === d.getFullYear();
       })
       .reduce((s, l) => s + (l.loan_amount ?? 0), 0);
     monthly.push({ label, value });
   }
+
+  await auditPromise;
 
   return {
     totalPipelineValue,
@@ -148,7 +182,7 @@ export async function getPipelineOverview(profile: Profile) {
 
 export async function getCommissionSummary(profile: Profile) {
   const supabase = (await createClient()) as SupabaseClient;
-  await auditReportView(profile, "commission_summary");
+  const auditPromise = startAuditReportView(profile, "commission_summary");
 
   type CommissionRow = {
     upfront_commission: number | null;
@@ -170,6 +204,8 @@ export async function getCommissionSummary(profile: Profile) {
 
   const sum = (vals: (number | null)[]) => vals.reduce((s: number, v) => s + (v ?? 0), 0);
 
+  await auditPromise;
+
   return {
     totalPaid: sum(paid.map((c) => (c.upfront_commission ?? 0) + (c.trail_commission ?? 0))),
     totalExpected: sum(
@@ -183,25 +219,30 @@ export async function getCommissionSummary(profile: Profile) {
 
 export async function getLenderMix(profile: Profile) {
   const supabase = (await createClient()) as SupabaseClient;
-  await auditReportView(profile, "lender_mix");
+  const auditPromise = startAuditReportView(profile, "lender_mix");
 
-  type LoanForLenderMix = { loan_amount: number | null; lenders: { name: string } | null };
+  type LoanForLenderMix = { loan_amount: number | null; lender_id: string | null };
 
-  const total = await countRows(supabase, "loans");
+  const [total, lendersById] = await Promise.all([
+    countRows(supabase, "loans"),
+    fetchLookup(supabase, "lenders", "id, name"),
+  ]);
   const rows = await selectAllRows<LoanForLenderMix>(total, (from, to) =>
     supabase
       .from("loans")
-      .select("loan_amount, lender_id, lenders(name)")
+      .select("loan_amount, lender_id")
       .range(from, to) as unknown as PromiseLike<{ data: LoanForLenderMix[] | null; error: unknown }>
   );
 
   const byLender: Record<string, { count: number; value: number }> = {};
   for (const l of rows) {
-    const name = l.lenders?.name ?? "Unassigned";
+    const name = (l.lender_id && (lendersById.get(l.lender_id)?.name as string | undefined)) ?? "Unassigned";
     byLender[name] ??= { count: 0, value: 0 };
     byLender[name].count += 1;
     byLender[name].value += l.loan_amount ?? 0;
   }
+
+  await auditPromise;
 
   return {
     byLender: Object.entries(byLender)
@@ -214,24 +255,26 @@ export async function getLenderMix(profile: Profile) {
 
 export async function getReferralBreakdown(profile: Profile) {
   const supabase = (await createClient()) as SupabaseClient;
-  await auditReportView(profile, "referral_breakdown");
+  const auditPromise = startAuditReportView(profile, "referral_breakdown");
 
-  type ClientForReferral = {
-    client_type: string | null;
-    lead_sources: { name: string } | null;
-  };
+  type ClientForReferral = { client_type: string | null; lead_source_id: string | null };
 
-  const total = await countRows(supabase, "clients");
+  const [total, leadSourcesById] = await Promise.all([
+    countRows(supabase, "clients"),
+    fetchLookup(supabase, "lead_sources", "id, name"),
+  ]);
   const rows = await selectAllRows<ClientForReferral>(total, (from, to) =>
     supabase
       .from("clients")
-      .select("client_type, lead_source_id, lead_sources(name)")
+      .select("client_type, lead_source_id")
       .range(from, to) as unknown as PromiseLike<{ data: ClientForReferral[] | null; error: unknown }>
   );
 
   const byReferral: Record<string, number> = {};
   for (const c of rows) {
-    const name = c.lead_sources?.name ?? "Unknown / not recorded";
+    const name =
+      (c.lead_source_id && (leadSourcesById.get(c.lead_source_id)?.name as string | undefined)) ??
+      "Unknown / not recorded";
     byReferral[name] = (byReferral[name] ?? 0) + 1;
   }
 
@@ -240,6 +283,8 @@ export async function getReferralBreakdown(profile: Profile) {
     const label = c.client_type ? c.client_type.replace("_", " ") : "Unclassified";
     byClientType[label] = (byClientType[label] ?? 0) + 1;
   }
+
+  await auditPromise;
 
   return {
     byReferral: Object.entries(byReferral)
@@ -260,32 +305,25 @@ function isInMonth(dateStr: string | null, year: number, month: number): boolean
 type LoanActivity = {
   enquiry_date: string | null;
   submission_date: string | null;
-  settlement_booked_date: string | null;
   settlement_date: string | null;
   loan_amount: number | null;
+  pipeline_stage_id: string | null;
 };
 
-function computeMonthlyActivity(rows: LoanActivity[]) {
-  // "Settled this month" (count) treats booked vs. actually-settled as two
-  // views of the same event, not two events — a loan counts once even if
-  // both dates land in the same month.
-  function settledInMonth(row: LoanActivity, year: number, month: number): boolean {
-    return (
-      isInMonth(row.settlement_booked_date, year, month) ||
-      isInMonth(row.settlement_date, year, month)
-    );
-  }
+function computeMonthlyActivity(
+  rows: LoanActivity[],
+  stagesById: Map<string, Record<string, unknown>>
+) {
+  const isSettled = (row: LoanActivity) =>
+    row.pipeline_stage_id ? stagesById.get(row.pipeline_stage_id)?.category === "settled" : false;
 
-  // Settlement $ value for a month: the actual settlement_date is
-  // authoritative once it's recorded; settlement_booked_date is only used
-  // as a fallback for a loan that's scheduled but not yet marked settled
-  // (e.g. the current month) — so a loan's value is never counted twice
-  // across two different months.
+  // Settlement value only ever counts a loan that has actually settled
+  // (settlement_date recorded and its stage is "Settled") — a booked-but-
+  // not-yet-settled loan doesn't show up here at all; see "pending
+  // settlements" below for that list.
   function settlementValueForMonth(row: LoanActivity, year: number, month: number): number {
-    if (row.settlement_date) {
-      return isInMonth(row.settlement_date, year, month) ? row.loan_amount ?? 0 : 0;
-    }
-    return isInMonth(row.settlement_booked_date, year, month) ? row.loan_amount ?? 0 : 0;
+    if (!isSettled(row) || !isInMonth(row.settlement_date, year, month)) return 0;
+    return row.loan_amount ?? 0;
   }
 
   const now = new Date();
@@ -295,8 +333,8 @@ function computeMonthlyActivity(rows: LoanActivity[]) {
   const submissionsThisMonth = rows.filter((r) =>
     isInMonth(r.submission_date, now.getFullYear(), now.getMonth())
   ).length;
-  const settlementsThisMonth = rows.filter((r) =>
-    settledInMonth(r, now.getFullYear(), now.getMonth())
+  const settlementsThisMonth = rows.filter(
+    (r) => isSettled(r) && isInMonth(r.settlement_date, now.getFullYear(), now.getMonth())
   ).length;
 
   const leadsMonthly: { label: string; value: number }[] = [];
@@ -341,27 +379,27 @@ function computeMonthlyActivity(rows: LoanActivity[]) {
  */
 export async function getPipelineAndActivity(profile: Profile) {
   const supabase = (await createClient()) as SupabaseClient;
-  await auditReportView(profile, "pipeline_and_activity");
+  const auditPromise = startAuditReportView(profile, "pipeline_and_activity");
 
-  type LoanForPipelinePage = LoanActivity & {
-    pipeline_stages: { name: string; category: string } | null;
-  };
-
-  const total = await countRows(supabase, "loans");
-  const rows = await selectAllRows<LoanForPipelinePage>(total, (from, to) =>
+  const [total, stagesById] = await Promise.all([
+    countRows(supabase, "loans"),
+    fetchLookup(supabase, "pipeline_stages", "id, name, category"),
+  ]);
+  const rows = await selectAllRows<LoanActivity>(total, (from, to) =>
     supabase
       .from("loans")
-      .select(
-        "loan_amount, enquiry_date, submission_date, settlement_booked_date, settlement_date, application_date, pipeline_stages(name, category)"
-      )
-      .range(from, to) as unknown as PromiseLike<{
-      data: LoanForPipelinePage[] | null;
-      error: unknown;
-    }>
+      .select("loan_amount, enquiry_date, submission_date, settlement_date, pipeline_stage_id")
+      .range(from, to) as unknown as PromiseLike<{ data: LoanActivity[] | null; error: unknown }>
   );
 
-  const settledCount = rows.filter((l) => l.pipeline_stages?.category === "settled").length;
-  const lostCount = rows.filter((l) => l.pipeline_stages?.category === "lost").length;
+  const categoryOf = (l: LoanActivity) =>
+    l.pipeline_stage_id ? (stagesById.get(l.pipeline_stage_id)?.category as string | undefined) : undefined;
+  const nameOf = (l: LoanActivity) =>
+    (l.pipeline_stage_id && (stagesById.get(l.pipeline_stage_id)?.name as string | undefined)) ??
+    "Unclassified";
+
+  const settledCount = rows.filter((l) => categoryOf(l) === "settled").length;
+  const lostCount = rows.filter((l) => categoryOf(l) === "lost").length;
   const conversionRate =
     settledCount + lostCount > 0
       ? Math.round((settledCount / (settledCount + lostCount)) * 100)
@@ -369,7 +407,7 @@ export async function getPipelineAndActivity(profile: Profile) {
 
   const stageCounts: Record<string, number> = {};
   for (const l of rows) {
-    const name = l.pipeline_stages?.name ?? "Unclassified";
+    const name = nameOf(l);
     stageCounts[name] = (stageCounts[name] ?? 0) + 1;
   }
   const sortedStages = Object.entries(stageCounts)
@@ -380,6 +418,10 @@ export async function getPipelineAndActivity(profile: Profile) {
   const stageBreakdown =
     otherStagesTotal > 0 ? [...topStages, { label: "Other", value: otherStagesTotal }] : topStages;
 
+  const activity = computeMonthlyActivity(rows, stagesById);
+
+  await auditPromise;
+
   return {
     totalLoans: rows.length,
     settledCount,
@@ -387,6 +429,53 @@ export async function getPipelineAndActivity(profile: Profile) {
     conversionRate,
     inFlightCount: rows.length - settledCount - lostCount,
     stageBreakdown,
-    ...computeMonthlyActivity(rows),
+    ...activity,
   };
+}
+
+export type PendingSettlement = {
+  clientName: string;
+  lenderName: string;
+  loanAmount: number | null;
+  unconditionalApprovalDate: string | null;
+  settlementBookedDate: string | null;
+};
+
+/**
+ * Loans that are unconditionally approved but haven't actually settled yet
+ * — a broker's "ready to settle" work queue. Filtered in the database
+ * (not fetched-then-filtered in JS) since this is a small, targeted list,
+ * not a full-table aggregate.
+ */
+export async function getPendingSettlements(profile: Profile): Promise<PendingSettlement[]> {
+  const supabase = (await createClient()) as SupabaseClient;
+  const auditPromise = startAuditReportView(profile, "pending_settlements");
+
+  const { data } = await supabase
+    .from("loans")
+    .select(
+      "loan_amount, unconditional_approval_date, settlement_booked_date, clients(full_name), lenders(name)"
+    )
+    .not("unconditional_approval_date", "is", null)
+    .is("settlement_date", null)
+    .order("settlement_booked_date", { ascending: true, nullsFirst: false })
+    .range(0, 499);
+
+  await auditPromise;
+
+  type Row = {
+    loan_amount: number | null;
+    unconditional_approval_date: string | null;
+    settlement_booked_date: string | null;
+    clients: { full_name: string } | null;
+    lenders: { name: string } | null;
+  };
+
+  return ((data ?? []) as unknown as Row[]).map((r) => ({
+    clientName: r.clients?.full_name ?? "Unknown client",
+    lenderName: r.lenders?.name ?? "Unassigned",
+    loanAmount: r.loan_amount,
+    unconditionalApprovalDate: r.unconditional_approval_date,
+    settlementBookedDate: r.settlement_booked_date,
+  }));
 }
