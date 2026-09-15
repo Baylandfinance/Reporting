@@ -2,6 +2,7 @@ import { requireSessionProfile } from "@/lib/auth/session";
 import { Topbar } from "@/components/nav/Topbar";
 import { Card } from "@/components/charts/Card";
 import { ChangePasswordForm } from "@/components/account/ChangePasswordForm";
+import { EditNameForm } from "@/components/account/EditNameForm";
 
 export default async function AccountPage() {
   const profile = await requireSessionProfile();
@@ -14,7 +15,9 @@ export default async function AccountPage() {
           <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <dt className="text-xs text-ink-muted">Name</dt>
-              <dd className="text-sm text-ink dark:text-ink-dark">{profile.full_name}</dd>
+              <dd>
+                <EditNameForm initialName={profile.full_name} />
+              </dd>
             </div>
             <div>
               <dt className="text-xs text-ink-muted">Email</dt>
