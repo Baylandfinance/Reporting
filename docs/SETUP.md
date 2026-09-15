@@ -25,18 +25,42 @@ that is infrastructure you can set up and sanity-check safely.
 
 1. Run the app locally (`npm install && npm run dev`) or deploy it first —
    either works.
-2. Go to `/login` and use Supabase's dashboard (**Authentication → Users
-   → Add user**) to create your own account with your real name and email,
-   or wire up a temporary sign-up form — there isn't one in the UI yet,
-   since self-service sign-up isn't appropriate for a staff-only platform.
-3. Sign in, complete MFA enrollment.
-4. In the Supabase SQL editor, promote yourself to admin (new accounts
+2. In Supabase, go to **Authentication → URL Configuration** and set the
+   **Site URL** to your deployed app's URL (e.g. the Vercel URL, or your
+   custom domain once wired up). This is where Supabase sends people after
+   they click an invite or password-reset link — if it's wrong or left as
+   `localhost`, invited staff land nowhere.
+3. Use Supabase's dashboard (**Authentication → Users → Add user**) to
+   create your own account with your real name and email. There is no
+   self-service sign-up page in the app — deliberately, since open
+   registration isn't appropriate for a staff-only platform holding client
+   data.
+4. Sign in, complete MFA enrollment.
+5. In the Supabase SQL editor, promote yourself to admin (new accounts
    default to the lowest-privilege role):
    ```sql
    update profiles set role = 'admin' where email = 'you@baylandfinance.com.au';
    ```
-5. From then on, manage everyone else's role from **Users & Access** in
+6. From then on, manage everyone else's role from **Users & Access** in
    the app — you shouldn't need the SQL editor again for this.
+
+## Adding other staff afterwards
+
+Once you're set up as admin, for every new staff member:
+
+1. Supabase dashboard → **Authentication → Users → Add user → Invite
+   user**. Enter their email — don't set a password yourself. Supabase
+   emails them a link to `/auth/set-password` on your Site URL, where they
+   choose their own password nobody else ever sees, then complete MFA
+   enrollment.
+2. Once they've logged in for the first time (their profile row now
+   exists), go to **Users & Access** in the app and set their role. New
+   accounts default to `assistant` — the lowest-privilege role — until an
+   admin promotes them.
+
+If you use "Add user" → "Create new user" instead of "Invite user", you set
+their password yourself and would need to pass it to them some other way —
+prefer the invite flow so passwords are never shared over email or chat.
 
 ## 3. Deploy to Vercel
 
