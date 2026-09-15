@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { Topbar } from "@/components/nav/Topbar";
 import { Card } from "@/components/charts/Card";
 import { RoleSelect, ActiveToggle } from "./controls";
+import { InviteUserForm } from "./InviteUserForm";
 
 export default async function UsersPage() {
   await requireRole("admin");
@@ -18,7 +19,14 @@ export default async function UsersPage() {
         title="Users & Access"
         subtitle="Manage staff roles. Deactivating a user immediately revokes their session."
       />
-      <main className="flex-1 p-6">
+      <main className="flex-1 space-y-6 p-6">
+        <Card
+          title="Invite a new user"
+          subtitle="They'll get an email to set their own password, then be walked through MFA enrollment."
+        >
+          <InviteUserForm />
+        </Card>
+
         <Card title="Staff accounts">
           <table className="w-full text-sm">
             <thead>

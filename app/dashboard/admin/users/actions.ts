@@ -6,6 +6,63 @@ import { createServiceRoleClient } from "@/lib/supabase/server";
 import { logAuditEvent } from "@/lib/audit/log";
 import type { UserRole } from "@/lib/types/database";
 
+const VALID_ROLES: UserRole[] = ["admin", "broker", "assistant"];
+
+export async function inviteUser(fullName: string, email: string, role: UserRole) {
+  const admin = await requireRole("admin");
+
+  const trimmedName = fullName.trim();
+  const trimmedEmail = email.trim().toLowerCase();
+  if (!trimmedName) throw new Error("Name is required.");
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+    throw new Error("Enter a valid email address.");
+  }
+  if (!VALID_ROLES.includes(role)) throw new Error("Invalid role.");
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  if (!appUrl) throw new Error("NEXT_PUBLIC_APP_URL is not configured.");
+
+  const supabase = createServiceRoleClient();
+
+  const { data, error } = await supabase.auth.admin.inviteUserByEmail(trimmedEmail, {
+    redirectTo: `${appUrl}/auth/set-password`,
+    data: { full_name: trimmedName },
+  });
+
+  if (error) {
+    // Supabase's shared email sender has a very low rate limit — surface
+    // that distinctly so the admin doesn't mistake it for a real failure.
+    if (error.message.toLowerCase().includes("rate limit")) {
+      throw new Error(
+        "Email rate limit exceeded. Wait an hour and try again, or set up custom SMTP for reliable sending."
+      );
+    }
+    throw new Error(error.message);
+  }
+
+  const newUserId = data.user?.id;
+  if (newUserId && role !== "assistant") {
+    // New accounts default to 'assistant' via the on_auth_user_created
+    // trigger — set the chosen role immediately rather than waiting for
+    // the admin to do a second step in the table below.
+    const { error: roleError } = await supabase
+      .from("profiles")
+      .update({ role })
+      .eq("id", newUserId);
+    if (roleError) throw new Error(roleError.message);
+  }
+
+  await logAuditEvent({
+    actorId: admin.id,
+    action: "invite_user",
+    resourceType: "profile",
+    resourceId: newUserId ?? null,
+    metadata: { email: trimmedEmail, role },
+  });
+
+  revalidatePath("/dashboard/admin/users");
+}
+
 export async function updateUserRole(userId: string, role: UserRole) {
   const admin = await requireRole("admin");
   const supabase = createServiceRoleClient();
