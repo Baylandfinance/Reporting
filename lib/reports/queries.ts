@@ -233,3 +233,58 @@ export async function getReferralBreakdown(profile: Profile) {
     totalClients: rows.length,
   };
 }
+
+function isInMonth(dateStr: string | null, year: number, month: number): boolean {
+  if (!dateStr) return false;
+  const d = new Date(dateStr);
+  return d.getFullYear() === year && d.getMonth() === month;
+}
+
+export async function getSubmissionsAndSettlements(profile: Profile) {
+  const supabase = await createClient();
+  await auditReportView(profile, "submissions_and_settlements");
+
+  type LoanDates = {
+    submission_date: string | null;
+    settlement_booked_date: string | null;
+    settlement_date: string | null;
+  };
+
+  const rows = await selectAllRows<LoanDates>((from, to) =>
+    (supabase as SupabaseClient)
+      .from("loans")
+      .select("submission_date, settlement_booked_date, settlement_date")
+      .range(from, to) as unknown as PromiseLike<{ data: LoanDates[] | null; error: unknown }>
+  );
+
+  // "Settled this month" counts a loan once even if both its booked and
+  // actual settlement dates land in the same month — booked vs. settled
+  // are two views of the same event, not two events.
+  function settledInMonth(row: LoanDates, year: number, month: number): boolean {
+    return (
+      isInMonth(row.settlement_booked_date, year, month) ||
+      isInMonth(row.settlement_date, year, month)
+    );
+  }
+
+  const now = new Date();
+  const submissionsThisMonth = rows.filter((r) =>
+    isInMonth(r.submission_date, now.getFullYear(), now.getMonth())
+  ).length;
+  const settlementsThisMonth = rows.filter((r) =>
+    settledInMonth(r, now.getFullYear(), now.getMonth())
+  ).length;
+
+  const monthly: { label: string; submissions: number; settlements: number }[] = [];
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const label = d.toLocaleString("en-AU", { month: "short" });
+    const submissions = rows.filter((r) =>
+      isInMonth(r.submission_date, d.getFullYear(), d.getMonth())
+    ).length;
+    const settlements = rows.filter((r) => settledInMonth(r, d.getFullYear(), d.getMonth())).length;
+    monthly.push({ label, submissions, settlements });
+  }
+
+  return { submissionsThisMonth, settlementsThisMonth, monthly };
+}
