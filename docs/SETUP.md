@@ -50,11 +50,13 @@ that is infrastructure you can set up and sanity-check safely.
 4. Deploy. Update `NEXT_PUBLIC_APP_URL` to the real deployed URL and
    redeploy (some auth redirects depend on it).
 
-## 4. Register the Microsoft Graph app (for live Excel Online sync)
+## 4. Register the Microsoft Graph app (for automatic Excel Online sync)
 
-Only needed if you want the live-connection option rather than periodic
-manual export/import. This step happens in your Microsoft 365 tenant, not
-in this codebase — you need Global Administrator or Application
+Only needed for the automatic, twice-daily connection. The **Import Data →
+Upload spreadsheet** button works today with no Microsoft setup at all —
+use that first, and come back to this once someone with Microsoft 365
+admin rights is available. This step happens in your Microsoft 365 tenant,
+not in this codebase — you need Global Administrator or Application
 Administrator rights in Entra ID (Azure AD) to do it.
 
 1. [entra.microsoft.com](https://entra.microsoft.com) → **App
@@ -69,30 +71,28 @@ Administrator rights in Entra ID (Azure AD) to do it.
 5. **Certificates & secrets** → New client secret. Copy the value
    immediately (Azure only shows it once).
 6. Put the tenant ID, application (client) ID, and client secret into the
-   `MS_GRAPH_*` environment variables.
-7. As an admin in the platform, visit `/api/graph/connect` — this starts
-   the Microsoft consent flow. Sign in with an account that has read
-   access to the loan tracker workbook.
-8. After consenting, a row is created in `graph_connections` with a
-   placeholder `drive_item_id`. Find the real one: open the workbook in
-   Excel Online, and either use the Graph Explorer
-   (`https://developer.microsoft.com/graph/graph-explorer`) to call
-   `GET /me/drive/root:/path/to/Application Management.xlsx` and copy the
-   `id` field, or ask whoever manages the SharePoint/OneDrive site. Update
-   the row:
-   ```sql
-   update graph_connections
-   set drive_item_id = '<the real item id>', worksheet_names = '["Sheet1"]'
-   where id = '<the row id from step 7>';
-   ```
-   (Replace `Sheet1` with the actual worksheet/tab name if different.)
-9. Trigger a sync by POSTing to `/api/graph/sync` (as a signed-in admin —
-   e.g. from the browser console on the app's own origin, or wire up a
-   button later). Check the JSON response's `errors` array before trusting
-   the numbers — it lists exactly which rows didn't map and why (usually:
-   a broker name in the sheet that doesn't match any staff account's
-   `full_name` in **Users & Access** — fix the mismatch on either side and
-   re-run).
+   `MS_GRAPH_*` environment variables, and set `CRON_SECRET` to any random
+   string (`openssl rand -base64 32` again).
+7. As an admin in the platform, go to **Import Data** and click **Connect
+   Microsoft 365 account** — this starts the Microsoft consent flow. Sign
+   in with an account that has read access to the loan tracker workbook.
+8. Back on **Import Data**, paste the workbook's sharing link (in Excel
+   Online or SharePoint: **Share → Copy link**) into the box and click
+   **Save**. The app resolves the link to the actual file via Microsoft
+   Graph's Shares API automatically — no Graph Explorer, no hunting for an
+   item ID by hand.
+9. Click **Sync now** to run it once immediately. Check the results panel
+   before trusting the numbers — it lists exactly which rows didn't map
+   and why (usually: a broker name in the sheet that doesn't match any
+   staff account's `full_name` in **Users & Access** — fix the mismatch on
+   either side and sync again).
+10. From then on it also runs automatically twice a day (`vercel.json`'s
+    `crons` block — currently ~7am and ~5pm Melbourne time; shifts by an
+    hour across daylight saving since Vercel Cron runs on UTC). **Note:**
+    Vercel's free "Hobby" plan limits cron jobs to once a day — if you're
+    on Hobby, only one of the two daily runs will actually fire, or you'll
+    need to upgrade to a paid plan for true twice-daily. The **Sync now**
+    button always works regardless of plan.
 
 ## Excel Online sheet format
 

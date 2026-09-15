@@ -169,7 +169,9 @@ export interface Database {
           id: string;
           connected_by: string;
           tenant_id: string;
-          drive_item_id: string;
+          drive_id: string | null;
+          drive_item_id: string | null;
+          file_name: string | null;
           worksheet_names: string[];
           encrypted_refresh_token: string;
           token_iv: string;
@@ -180,7 +182,6 @@ export interface Database {
         Insert: Partial<Database["public"]["Tables"]["graph_connections"]["Row"]> & {
           connected_by: string;
           tenant_id: string;
-          drive_item_id: string;
           encrypted_refresh_token: string;
           token_iv: string;
           token_auth_tag: string;

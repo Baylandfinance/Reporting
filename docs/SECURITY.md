@@ -23,8 +23,9 @@
 
 ## Secrets
 
-- `SUPABASE_SERVICE_ROLE_KEY`, `MS_GRAPH_CLIENT_SECRET`, and
-  `GRAPH_TOKEN_ENCRYPTION_KEY` are server-only environment variables —
+- `SUPABASE_SERVICE_ROLE_KEY`, `MS_GRAPH_CLIENT_SECRET`,
+  `GRAPH_TOKEN_ENCRYPTION_KEY`, and `CRON_SECRET` are server-only
+  environment variables —
   never referenced from a client component, never prefixed
   `NEXT_PUBLIC_`. Only `NEXT_PUBLIC_SUPABASE_URL` and
   `NEXT_PUBLIC_SUPABASE_ANON_KEY` are meant to reach the browser (the anon
@@ -61,12 +62,24 @@ client's data, and when" after the fact.
   protection, but a dedicated brute-force/credential-stuffing control
   (e.g. Vercel's WAF rules, or a rate-limit middleware) isn't configured
   here yet.
-- **The Graph sync trusts the sheet.** A malformed or malicious row in the
-  Excel workbook won't corrupt other clients' data (RLS still scopes
-  everything to the matched `owner_broker_id`), but there's no schema
-  validation library (e.g. Zod) on the incoming values beyond basic type
-  coercion — tighten this before opening sync access to more than a
-  trusted admin.
+- **Both import paths trust the sheet.** A malformed row in an uploaded
+  file or the synced workbook won't corrupt other clients' data (RLS still
+  scopes everything to the matched `owner_broker_id`), but there's no
+  schema validation library (e.g. Zod) on the incoming values beyond basic
+  type coercion — tighten this before opening either import path to more
+  than a trusted admin.
+- **Uploaded-file parsing uses `exceljs`, not the npm `xlsx` package** —
+  the latter has two unpatched high-severity advisories (prototype
+  pollution, ReDoS) with no fix on the npm registry, and this feature
+  parses admin-uploaded files, i.e. attacker-controllable input in
+  principle. `exceljs` carries one moderate, non-applicable-to-our-usage
+  advisory (a `uuid` bounds check on an internal ID it generates itself,
+  never on file content). Re-check both packages' advisories before
+  upgrading either.
+- **The scheduled sync endpoint (`GET /api/graph/sync`) is protected by
+  `CRON_SECRET`, not a user session** — anyone who obtains that value can
+  trigger a sync. Treat it with the same care as the other server-only
+  secrets above.
 - **No automated dependency/vulnerability scanning wired up** (e.g.
   Dependabot, `npm audit` in CI). Turn this on in the repository settings.
 - **No backup/restore drill has been run.** Supabase takes automatic

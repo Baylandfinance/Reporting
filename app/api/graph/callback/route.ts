@@ -42,13 +42,12 @@ export async function GET(request: NextRequest) {
   const { encrypted, iv, authTag } = encryptToken(tokens.refresh_token);
 
   const supabase = createServiceRoleClient();
-  // Placeholder identifiers — an admin fills in the real workbook/worksheet
-  // via the Users & Access / Graph settings screen after connecting, since
-  // Graph's own drive-item picker isn't wired up in this first pass.
+  // No workbook chosen yet — the admin pastes a sharing link on the Import
+  // Data page next, which resolves to a drive/item id via Microsoft's
+  // Shares API (lib/graph/client.ts's resolveShareLink).
   const { error } = await supabase.from("graph_connections").insert({
     connected_by: admin.id,
     tenant_id: tenantId,
-    drive_item_id: "REPLACE_WITH_WORKBOOK_DRIVE_ITEM_ID",
     encrypted_refresh_token: encrypted,
     token_iv: iv,
     token_auth_tag: authTag,
@@ -64,5 +63,5 @@ export async function GET(request: NextRequest) {
     resourceType: "graph_connections",
   });
 
-  return NextResponse.redirect(new URL("/dashboard/admin/users", request.url));
+  return NextResponse.redirect(new URL("/dashboard/admin/import", request.url));
 }
