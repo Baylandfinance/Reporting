@@ -1,12 +1,23 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+const MAX_SESSION_AGE_MS = 24 * 60 * 60 * 1000;
+
 /**
  * Refreshes the Supabase auth session on every request and enforces that
  * every /dashboard route requires a signed-in session with MFA satisfied
  * (aal2). Unauthenticated or aal1-only requests are redirected rather than
  * left to individual pages to check — a missing per-page check must never
  * be the only thing standing between a request and client data.
+ *
+ * Supabase's own session handling has no absolute cutoff by default: as
+ * long as the browser holds a valid refresh token, the SDK silently
+ * refreshes the access token forever, so a session opened days ago stays
+ * logged in with no further password or MFA prompt. This enforces a hard
+ * 24-hour lifetime measured from the last real login (user.last_sign_in_at,
+ * which only changes on an actual sign-in, not on token refresh or MFA
+ * verification) — past that, the session is revoked server-side and the
+ * user is sent back through password + MFA from scratch.
  */
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });
@@ -38,6 +49,25 @@ export async function updateSession(request: NextRequest) {
 
   const isDashboardRoute = request.nextUrl.pathname.startsWith("/dashboard");
   const isMfaEnrollRoute = request.nextUrl.pathname.startsWith("/mfa-enroll");
+  const isLoginRoute = request.nextUrl.pathname.startsWith("/login");
+
+  if (user && !isLoginRoute && user.last_sign_in_at) {
+    const sessionAgeMs = Date.now() - new Date(user.last_sign_in_at).getTime();
+    if (sessionAgeMs > MAX_SESSION_AGE_MS) {
+      // Revoke this session's refresh token server-side, not just the
+      // cookie in this browser — 'local' scope so other devices this user
+      // is signed in on aren't affected by this one session's cutoff.
+      await supabase.auth.signOut({ scope: "local" });
+
+      const url = request.nextUrl.clone();
+      url.pathname = "/login";
+      url.searchParams.set("expired", "1");
+      if (isDashboardRoute || isMfaEnrollRoute) {
+        url.searchParams.set("next", request.nextUrl.pathname);
+      }
+      return NextResponse.redirect(url);
+    }
+  }
 
   if (isDashboardRoute && !user) {
     const url = request.nextUrl.clone();

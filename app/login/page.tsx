@@ -19,6 +19,7 @@ function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   const next = params.get("next") ?? "/dashboard";
+  const expired = params.get("expired") === "1";
 
   const [step, setStep] = useState<Step>("credentials");
   const [email, setEmail] = useState("");
@@ -107,6 +108,12 @@ function LoginForm() {
             <div className="text-xs text-ink-muted">Reporting platform</div>
           </div>
         </div>
+
+        {expired && (
+          <p className="mb-4 rounded-lg bg-series-1/10 px-3 py-2 text-xs text-series-1">
+            Your session expired after 24 hours. Sign in again to continue.
+          </p>
+        )}
 
         {step === "credentials" ? (
           <form onSubmit={handleCredentials} className="space-y-4">
