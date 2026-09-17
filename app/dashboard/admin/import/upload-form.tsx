@@ -5,6 +5,7 @@ import { UploadCloud } from "lucide-react";
 import { uploadSpreadsheet } from "./actions";
 import { ImportResultSummary } from "@/components/import/ImportResultSummary";
 import type { SyncResult } from "@/lib/import/syncRows";
+import { Spinner } from "@/components/ui/Spinner";
 
 export function UploadForm() {
   const formRef = useRef<HTMLFormElement>(null);
@@ -40,11 +41,18 @@ export function UploadForm() {
         <button
           type="submit"
           disabled={isPending || !fileName}
-          className="rounded-lg bg-series-1 px-4 py-2.5 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
+          className="inline-flex items-center justify-center gap-2 rounded-lg bg-series-1 px-4 py-2.5 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
         >
+          {isPending && <Spinner />}
           {isPending ? "Uploading…" : "Upload"}
         </button>
       </form>
+
+      {isPending && (
+        <p className="text-xs text-ink-muted">
+          Reading the spreadsheet and matching rows — this can take a little while for a large file, don&apos;t close this tab.
+        </p>
+      )}
 
       {result && <ImportResultSummary result={result} />}
     </div>

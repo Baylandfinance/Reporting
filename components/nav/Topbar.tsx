@@ -1,5 +1,6 @@
-import { LogOut, Shield } from "lucide-react";
+import { Shield } from "lucide-react";
 import { signOutAction } from "@/app/dashboard/actions";
+import { SignOutButton } from "@/components/nav/SignOutButton";
 
 export function Topbar({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
@@ -18,13 +19,7 @@ export function Topbar({ title, subtitle }: { title: string; subtitle?: string }
           MFA active session
         </span>
         <form action={signOutAction}>
-          <button
-            type="submit"
-            className="flex items-center gap-1.5 rounded-lg border border-grid px-3 py-1.5 text-sm text-ink-secondary transition hover:bg-plane dark:border-grid-dark dark:text-ink-secondary-dark dark:hover:bg-white/5"
-          >
-            <LogOut className="h-3.5 w-3.5" />
-            Sign out
-          </button>
+          <SignOutButton />
         </form>
       </div>
     </header>

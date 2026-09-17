@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updateOwnName } from "@/app/dashboard/account/actions";
+import { Spinner } from "@/components/ui/Spinner";
 
 export function EditNameForm({ initialName }: { initialName: string }) {
   const router = useRouter();
@@ -55,8 +56,9 @@ export function EditNameForm({ initialName }: { initialName: string }) {
       <button
         type="submit"
         disabled={isPending}
-        className="rounded-lg bg-series-1 px-3 py-1.5 text-xs font-medium text-white transition hover:opacity-90 disabled:opacity-60"
+        className="inline-flex items-center gap-1.5 rounded-lg bg-series-1 px-3 py-1.5 text-xs font-medium text-white transition hover:opacity-90 disabled:opacity-60"
       >
+        {isPending && <Spinner className="h-3 w-3" />}
         {isPending ? "Saving…" : "Save"}
       </button>
       <button

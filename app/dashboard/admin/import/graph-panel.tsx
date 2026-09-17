@@ -11,6 +11,7 @@ import {
 } from "./graph-actions";
 import { ImportResultSummary } from "@/components/import/ImportResultSummary";
 import type { SyncResult } from "@/lib/import/syncRows";
+import { Spinner } from "@/components/ui/Spinner";
 
 export function GraphPanel({
   initialAccountConnected,
@@ -97,8 +98,9 @@ export function GraphPanel({
           <button
             type="submit"
             disabled={isPending}
-            className="rounded-lg bg-series-1 px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-lg bg-series-1 px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
           >
+            {isPending && <Spinner />}
             {isPending ? "Connecting…" : "Save"}
           </button>
         </div>

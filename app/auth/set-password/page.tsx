@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { ShieldCheck } from "lucide-react";
+import { Spinner } from "@/components/ui/Spinner";
 
 /**
  * Where an invited user lands after clicking the link in Supabase's invite
@@ -134,8 +135,9 @@ function SetPasswordForm() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full rounded-lg bg-series-1 px-3 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60"
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-series-1 px-3 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60"
             >
+              {loading && <Spinner />}
               {loading ? "Saving…" : "Set password and continue"}
             </button>
             <p className="text-center text-[11px] text-ink-muted">

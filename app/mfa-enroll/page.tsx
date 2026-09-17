@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { Spinner } from "@/components/ui/Spinner";
 
 /**
  * Every account on this platform must enroll a TOTP factor before it can
@@ -98,8 +99,9 @@ export default function MfaEnrollPage() {
           <button
             type="submit"
             disabled={loading || otp.length !== 6 || !factorId}
-            className="w-full rounded-lg bg-series-1 px-3 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60"
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-series-1 px-3 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60"
           >
+            {loading && <Spinner />}
             {loading ? "Verifying…" : "Confirm and continue"}
           </button>
         </form>

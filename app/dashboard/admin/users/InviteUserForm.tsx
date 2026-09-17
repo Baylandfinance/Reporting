@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { inviteUser } from "./actions";
 import type { UserRole } from "@/lib/types/database";
+import { Spinner } from "@/components/ui/Spinner";
 
 export function InviteUserForm() {
   const [fullName, setFullName] = useState("");
@@ -73,8 +74,9 @@ export function InviteUserForm() {
       <button
         type="submit"
         disabled={isPending}
-        className="rounded-lg bg-series-1 px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60"
+        className="inline-flex items-center gap-2 rounded-lg bg-series-1 px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60"
       >
+        {isPending && <Spinner />}
         {isPending ? "Sending…" : "Send invite"}
       </button>
       {error && <p className="w-full text-xs text-status-critical">{error}</p>}
