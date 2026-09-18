@@ -78,6 +78,54 @@ export async function inviteUser(
   return { ok: true };
 }
 
+/**
+ * Deletes the auth user outright (profiles row cascades with it). Only
+ * safe — and only expected to succeed — for a still-pending invite: the
+ * database itself refuses the delete with a foreign-key violation once the
+ * user has any real activity on record (a report view, an import, a role
+ * change — anything writing to audit_log, clients, or loans), which is
+ * exactly the protection we want against destroying the audit trail.
+ */
+export async function deleteUser(
+  userId: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const admin = await requireRole("admin");
+  if (userId === admin.id) {
+    return { ok: false, error: "You cannot delete your own account." };
+  }
+
+  const supabase = createServiceRoleClient();
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("full_name, email")
+    .eq("id", userId)
+    .single();
+
+  const { error } = await supabase.auth.admin.deleteUser(userId);
+  if (error) {
+    if (error.message.toLowerCase().includes("foreign key")) {
+      return {
+        ok: false,
+        error:
+          "This user has activity on record and can't be deleted — deactivate their account instead.",
+      };
+    }
+    return { ok: false, error: error.message };
+  }
+
+  await logAuditEvent({
+    actorId: admin.id,
+    action: "delete_user",
+    resourceType: "profile",
+    resourceId: userId,
+    metadata: { full_name: profile?.full_name, email: profile?.email },
+  });
+
+  revalidatePath("/dashboard/admin/users");
+  return { ok: true };
+}
+
 export async function updateUserRole(userId: string, role: UserRole) {
   const admin = await requireRole("admin");
   const supabase = createServiceRoleClient();

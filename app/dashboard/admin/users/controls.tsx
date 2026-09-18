@@ -1,7 +1,8 @@
 "use client";
 
-import { useTransition } from "react";
-import { setUserActive, updateUserRole } from "./actions";
+import { useState, useTransition } from "react";
+import { Trash2 } from "lucide-react";
+import { deleteUser, setUserActive, updateUserRole } from "./actions";
 import type { UserRole } from "@/lib/types/database";
 import { Spinner } from "@/components/ui/Spinner";
 
@@ -61,5 +62,44 @@ export function ActiveToggle({
       {isPending && <Spinner className="h-3 w-3" />}
       {isPending ? "Updating…" : isActive ? "Active" : "Deactivated"}
     </button>
+  );
+}
+
+export function DeleteUserButton({
+  userId,
+  fullName,
+}: {
+  userId: string;
+  fullName: string;
+}) {
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  function handleClick() {
+    setError(null);
+    const confirmed = window.confirm(
+      `Delete the pending invite for ${fullName}? You can invite the same email again straight after.`
+    );
+    if (!confirmed) return;
+
+    startTransition(async () => {
+      const result = await deleteUser(userId);
+      if (!result.ok) setError(result.error);
+    });
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <button
+        onClick={handleClick}
+        disabled={isPending}
+        title="Delete user"
+        className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium text-ink-muted transition hover:bg-status-critical/10 hover:text-status-critical disabled:opacity-60"
+      >
+        {isPending ? <Spinner className="h-3.5 w-3.5" /> : <Trash2 className="h-3.5 w-3.5" />}
+        {isPending ? "Deleting…" : "Delete"}
+      </button>
+      {error && <p className="max-w-[220px] text-right text-xs text-status-critical">{error}</p>}
+    </div>
   );
 }
