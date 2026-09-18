@@ -69,8 +69,12 @@ export default async function UsersPage() {
                       </div>
                     </td>
                     <td className="py-3 text-right">
-                      {p.id !== admin.id && pending && (
-                        <DeleteUserButton userId={p.id} fullName={p.full_name} />
+                      {p.id !== admin.id && (
+                        <DeleteUserButton
+                          userId={p.id}
+                          fullName={p.full_name}
+                          pending={pending}
+                        />
                       )}
                     </td>
                   </tr>
@@ -83,12 +87,11 @@ export default async function UsersPage() {
           Every role change, deactivation, and deletion is written to the
           audit log. New sign-ups default to the lowest-privilege
           &quot;assistant&quot; role and must be promoted here — nobody
-          grants themselves broker or admin access by signing up. A user can
-          only be deleted while their invite is still pending (no login
-          activity yet) — once someone has actually used the platform,
-          deleting them is blocked to protect the audit trail; deactivate
-          them instead. To resend an expired invite, delete the pending
-          entry and invite the same email again above.
+          grants themselves broker or admin access by signing up. Deleting a
+          user who has any real activity on record (a report view, an
+          import, a role change) is blocked automatically to protect the
+          audit trail — deactivate them instead. To reissue an invite,
+          delete the existing entry and invite the same email again above.
         </p>
       </main>
     </>

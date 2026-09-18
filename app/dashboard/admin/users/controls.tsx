@@ -68,9 +68,11 @@ export function ActiveToggle({
 export function DeleteUserButton({
   userId,
   fullName,
+  pending,
 }: {
   userId: string;
   fullName: string;
+  pending: boolean;
 }) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -78,7 +80,9 @@ export function DeleteUserButton({
   function handleClick() {
     setError(null);
     const confirmed = window.confirm(
-      `Delete the pending invite for ${fullName}? You can invite the same email again straight after.`
+      pending
+        ? `Delete the pending invite for ${fullName}? You can invite the same email again straight after.`
+        : `Delete ${fullName}? They've logged in before — if they have any activity on record this will be blocked automatically, but if it succeeds it's permanent.`
     );
     if (!confirmed) return;
 

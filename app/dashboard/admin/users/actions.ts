@@ -104,7 +104,10 @@ export async function deleteUser(
 
   const { error } = await supabase.auth.admin.deleteUser(userId);
   if (error) {
-    if (error.message.toLowerCase().includes("foreign key")) {
+    const msg = error.message.toLowerCase();
+    // GoTrue's wording for a Postgres FK violation isn't fully predictable
+    // across versions, so match broadly rather than one exact phrase.
+    if (msg.includes("foreign key") || msg.includes("constraint") || msg.includes("database error")) {
       return {
         ok: false,
         error:
