@@ -71,7 +71,7 @@ async function selectAllRows<T>(
  */
 async function fetchLookup(
   supabase: SupabaseClient,
-  table: "pipeline_stages" | "lenders" | "lead_sources",
+  table: "pipeline_stages" | "lenders" | "lead_sources" | "profiles",
   columns: string
 ): Promise<Map<string, Record<string, unknown>>> {
   const { data } = await supabase.from(table).select(columns);
@@ -296,80 +296,35 @@ export async function getReferralBreakdown(profile: Profile) {
   };
 }
 
-function isInMonth(dateStr: string | null, year: number, month: number): boolean {
-  if (!dateStr) return false;
-  const d = new Date(dateStr);
-  return d.getFullYear() === year && d.getMonth() === month;
-}
-
 type LoanActivity = {
   enquiry_date: string | null;
   submission_date: string | null;
   settlement_date: string | null;
   loan_amount: number | null;
   pipeline_stage_id: string | null;
+  loan_administrator_name: string | null;
+  parabroker_name: string | null;
+  owner_broker_id: string | null;
+  broker_name_raw: string | null;
 };
 
-function computeMonthlyActivity(
-  rows: LoanActivity[],
-  stagesById: Map<string, Record<string, unknown>>
-) {
-  const isSettled = (row: LoanActivity) =>
-    row.pipeline_stage_id ? stagesById.get(row.pipeline_stage_id)?.category === "settled" : false;
-
-  // Settlement value only ever counts a loan that has actually settled
-  // (settlement_date recorded and its stage is "Settled") — a booked-but-
-  // not-yet-settled loan doesn't show up here at all; see "pending
-  // settlements" below for that list.
-  function settlementValueForMonth(row: LoanActivity, year: number, month: number): number {
-    if (!isSettled(row) || !isInMonth(row.settlement_date, year, month)) return 0;
-    return row.loan_amount ?? 0;
-  }
-
-  const now = new Date();
-  const leadsThisMonth = rows.filter((r) =>
-    isInMonth(r.enquiry_date, now.getFullYear(), now.getMonth())
-  ).length;
-  const submissionsThisMonth = rows.filter((r) =>
-    isInMonth(r.submission_date, now.getFullYear(), now.getMonth())
-  ).length;
-  const settlementsThisMonth = rows.filter(
-    (r) => isSettled(r) && isInMonth(r.settlement_date, now.getFullYear(), now.getMonth())
-  ).length;
-
-  const leadsMonthly: { label: string; value: number }[] = [];
-  const submissionsMonthly: { label: string; value: number }[] = [];
-  const settlementValueMonthly: { label: string; value: number }[] = [];
-
-  for (let i = 11; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const label = d.toLocaleString("en-AU", { month: "short" });
-    const year = d.getFullYear();
-    const month = d.getMonth();
-
-    leadsMonthly.push({
-      label,
-      value: rows.filter((r) => isInMonth(r.enquiry_date, year, month)).length,
-    });
-    submissionsMonthly.push({
-      label,
-      value: rows.filter((r) => isInMonth(r.submission_date, year, month)).length,
-    });
-    settlementValueMonthly.push({
-      label,
-      value: rows.reduce((sum, r) => sum + settlementValueForMonth(r, year, month), 0),
-    });
-  }
-
-  return {
-    leadsThisMonth,
-    submissionsThisMonth,
-    settlementsThisMonth,
-    leadsMonthly,
-    submissionsMonthly,
-    settlementValueMonthly,
-  };
-}
+/**
+ * One row per loan, resolved to plain display values (no ids, no lookup
+ * maps) — shaped for the client-side filter/aggregate component on the
+ * Pipeline page, which recomputes the monthly series in the browser as the
+ * admin changes the broker/loan administrator/parabroker filters, rather
+ * than round-tripping to Supabase on every filter change.
+ */
+export type ActivityRow = {
+  enquiryDate: string | null;
+  submissionDate: string | null;
+  settlementDate: string | null;
+  loanAmount: number | null;
+  isSettled: boolean;
+  broker: string;
+  loanAdministrator: string;
+  parabroker: string;
+};
 
 /**
  * Everything the Pipeline & Settlements page needs, from a single fetch of
@@ -381,14 +336,17 @@ export async function getPipelineAndActivity(profile: Profile) {
   const supabase = (await createClient()) as SupabaseClient;
   const auditPromise = startAuditReportView(profile, "pipeline_and_activity");
 
-  const [total, stagesById] = await Promise.all([
+  const [total, stagesById, brokersById] = await Promise.all([
     countRows(supabase, "loans"),
     fetchLookup(supabase, "pipeline_stages", "id, name, category"),
+    fetchLookup(supabase, "profiles", "id, full_name"),
   ]);
   const rows = await selectAllRows<LoanActivity>(total, (from, to) =>
     supabase
       .from("loans")
-      .select("loan_amount, enquiry_date, submission_date, settlement_date, pipeline_stage_id")
+      .select(
+        "loan_amount, enquiry_date, submission_date, settlement_date, pipeline_stage_id, loan_administrator_name, parabroker_name, owner_broker_id, broker_name_raw"
+      )
       .range(from, to) as unknown as PromiseLike<{ data: LoanActivity[] | null; error: unknown }>
   );
 
@@ -418,7 +376,18 @@ export async function getPipelineAndActivity(profile: Profile) {
   const stageBreakdown =
     otherStagesTotal > 0 ? [...topStages, { label: "Other", value: otherStagesTotal }] : topStages;
 
-  const activity = computeMonthlyActivity(rows, stagesById);
+  const activityRows: ActivityRow[] = rows.map((l) => ({
+    enquiryDate: l.enquiry_date,
+    submissionDate: l.submission_date,
+    settlementDate: l.settlement_date,
+    loanAmount: l.loan_amount,
+    isSettled: categoryOf(l) === "settled",
+    broker: l.owner_broker_id
+      ? ((brokersById.get(l.owner_broker_id)?.full_name as string | undefined) ?? "Unknown broker")
+      : l.broker_name_raw || "Unattributed",
+    loanAdministrator: l.loan_administrator_name || "Unassigned",
+    parabroker: l.parabroker_name || "Unassigned",
+  }));
 
   await auditPromise;
 
@@ -429,7 +398,7 @@ export async function getPipelineAndActivity(profile: Profile) {
     conversionRate,
     inFlightCount: rows.length - settledCount - lostCount,
     stageBreakdown,
-    ...activity,
+    activityRows,
   };
 }
 
