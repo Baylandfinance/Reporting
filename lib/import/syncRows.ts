@@ -115,6 +115,12 @@ export async function syncWorksheetRows(rows: SourceRow[]): Promise<SyncResult> 
   const errors: string[] = [];
   let otherErrorsTruncated = 0;
   const unattributedCounts = new Map<string, number>();
+  // Guards against two genuinely separate loans (e.g. a client who's come
+  // back to the same broker/lender a second time) silently merging into one
+  // row just because they share the same natural key — the second, third,
+  // etc. occurrence within this same upload gets a disambiguating suffix
+  // instead of overwriting the first.
+  const seenNaturalKeys = new Map<string, number>();
 
   function recordOtherError(message: string) {
     if (errors.length < MAX_OTHER_ERRORS) {
@@ -210,13 +216,20 @@ export async function syncWorksheetRows(rows: SourceRow[]): Promise<SyncResult> 
     // client, broker, lender, and the earliest date recorded — rather than
     // fields that change as the loan progresses (status, amount, later
     // dates), which must stay free to update the same row on every import.
-    // Residual risk: the same client re-approaching the same broker/lender
-    // a second time with no dates recorded yet would collide into one row.
     const naturalKeyDate =
       getDate("enquiry date") ?? getDate("application date") ?? getDate("quote date") ?? "no-date";
-    const sourceRowRef = [clientNameRaw, brokerNameRaw, get("lender"), naturalKeyDate]
+    const baseKey = [clientNameRaw, brokerNameRaw, get("lender"), naturalKeyDate]
       .map((s) => s.trim().toLowerCase())
       .join("|");
+
+    // A genuine second loan for the same client/broker/lender with no
+    // distinguishing date (e.g. repeat business) would otherwise collide
+    // with the first and silently merge into one row, undercounting real
+    // submissions/settlements. Disambiguate every occurrence after the
+    // first within this same upload.
+    const occurrence = seenNaturalKeys.get(baseKey) ?? 0;
+    seenNaturalKeys.set(baseKey, occurrence + 1);
+    const sourceRowRef = occurrence === 0 ? baseKey : `${baseKey}|${occurrence + 1}`;
 
     const { data: loan, error: loanError } = await supabase
       .from("loans")
