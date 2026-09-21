@@ -80,10 +80,7 @@ const MAX_OTHER_ERRORS = 50;
  * app/api/graph/sync and the manual "Upload spreadsheet" admin action so
  * the two import paths can never drift out of sync on column mapping.
  */
-export async function syncWorksheetRows(
-  rows: SourceRow[],
-  sourceLabel: string
-): Promise<SyncResult> {
+export async function syncWorksheetRows(rows: SourceRow[]): Promise<SyncResult> {
   const supabase = createServiceRoleClient();
 
   if (rows.length < 2) {
@@ -202,7 +199,24 @@ export async function syncWorksheetRows(
       continue;
     }
 
-    const sourceRowRef = `${sourceLabel}!row${rowNum}`;
+    // The upsert key used to be "<file name>!row<N>" — meaning a re-upload
+    // under a different filename, or the same file with rows reordered,
+    // sorted, or filtered, made every row look like a brand-new loan
+    // instead of matching back to the one already saved. That both created
+    // duplicates and left the loan that used to sit at that row number as a
+    // permanent orphan nothing ever updates again. The source sheet has no
+    // stable ID column (see docs/SETUP.md), so this is built from fields
+    // that identify a loan and are set once near the start of its life —
+    // client, broker, lender, and the earliest date recorded — rather than
+    // fields that change as the loan progresses (status, amount, later
+    // dates), which must stay free to update the same row on every import.
+    // Residual risk: the same client re-approaching the same broker/lender
+    // a second time with no dates recorded yet would collide into one row.
+    const naturalKeyDate =
+      getDate("enquiry date") ?? getDate("application date") ?? getDate("quote date") ?? "no-date";
+    const sourceRowRef = [clientNameRaw, brokerNameRaw, get("lender"), naturalKeyDate]
+      .map((s) => s.trim().toLowerCase())
+      .join("|");
 
     const { data: loan, error: loanError } = await supabase
       .from("loans")

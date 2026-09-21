@@ -23,7 +23,7 @@ export async function uploadSpreadsheet(formData: FormData): Promise<SyncResult>
   const buffer = await file.arrayBuffer();
   const { worksheetName, rows } = await parseWorkbookFirstSheet(buffer);
 
-  const result = await syncWorksheetRows(rows, `upload:${file.name}`);
+  const result = await syncWorksheetRows(rows);
 
   await logAuditEvent({
     actorId: admin.id,

@@ -56,7 +56,7 @@ export async function runGraphSync(): Promise<SyncResult> {
     worksheetName,
   });
 
-  const result = await syncWorksheetRows(rows, `onedrive:${connection.file_name ?? worksheetName}`);
+  const result = await syncWorksheetRows(rows);
 
   await supabase
     .from("graph_connections")

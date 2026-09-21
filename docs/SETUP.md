@@ -149,6 +149,22 @@ it's saved as "unattributed" (visible to admins, not yet counted as any
 specific broker's own book) rather than being skipped. Everything else is
 optional and left blank if missing.
 
+**How re-uploading the same loan is recognised.** There's no unique ID
+column in the sheet, so a loan is identified by `Client Name` + `Broker` +
+`Lender` + its earliest recorded date (`Enquiry Date`, falling back to
+`Application Date`, then `Quote Date`). Re-uploading updates that same
+loan's row rather than creating a duplicate, as long as those fields stay
+the same between uploads. Two consequences worth knowing:
+
+- If the same client approaches the same broker for the same lender a
+  second time with none of those three dates filled in yet, both will be
+  treated as one loan until a date is entered to tell them apart. Fill in
+  at least `Enquiry Date` as early as possible in a deal's life.
+- Correcting a typo in `Client Name`, `Broker`, or `Lender` after the fact
+  creates a new loan record instead of updating the existing one — fix
+  those directly in the app once imported, not by re-uploading a corrected
+  sheet.
+
 Things worth cleaning up in the source sheet before relying on this
 long-term (found in the sample you provided, not hypothetical):
 

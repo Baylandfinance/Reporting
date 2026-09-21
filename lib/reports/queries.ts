@@ -110,8 +110,11 @@ export async function getPipelineOverview(profile: Profile) {
     "Unclassified";
 
   const now = new Date();
+  // Settled means "has a settlement date" — see getPipelineAndActivity for
+  // why this doesn't depend on the (fallible, manually-maintained) stage
+  // category classification.
   const settledThisMonth = rows.filter((l) => {
-    if (!l.settlement_date || categoryOf(l) !== "settled") return false;
+    if (!l.settlement_date) return false;
     const d = new Date(l.settlement_date);
     return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
   });
@@ -123,7 +126,7 @@ export async function getPipelineOverview(profile: Profile) {
     })
     .reduce((sum, l) => sum + (l.loan_amount ?? 0), 0);
 
-  const settledCount = rows.filter((l) => categoryOf(l) === "settled").length;
+  const settledCount = rows.filter((l) => l.settlement_date != null).length;
   const lostCount = rows.filter((l) => categoryOf(l) === "lost").length;
   const conversionRate =
     settledCount + lostCount > 0
@@ -156,7 +159,7 @@ export async function getPipelineOverview(profile: Profile) {
     const label = d.toLocaleString("en-AU", { month: "short" });
     const value = rows
       .filter((l) => {
-        if (!l.settlement_date || categoryOf(l) !== "settled") return false;
+        if (!l.settlement_date) return false;
         const sd = new Date(l.settlement_date);
         return sd.getMonth() === d.getMonth() && sd.getFullYear() === d.getFullYear();
       })
@@ -356,7 +359,13 @@ export async function getPipelineAndActivity(profile: Profile) {
     (l.pipeline_stage_id && (stagesById.get(l.pipeline_stage_id)?.name as string | undefined)) ??
     "Unclassified";
 
-  const settledCount = rows.filter((l) => categoryOf(l) === "settled").length;
+  // Settled means "has a settlement date" — not "its status text happens to
+  // be categorised as settled". A new/misspelled Status value from the
+  // sheet defaults to category 'active' until someone manually recategorises
+  // it (see 0003_seed_reference_data.sql), which silently hid genuinely
+  // settled loans from these figures. The date is ground truth; the stage
+  // category is a fallible, manually-maintained label.
+  const settledCount = rows.filter((l) => l.settlement_date != null).length;
   const lostCount = rows.filter((l) => categoryOf(l) === "lost").length;
   const conversionRate =
     settledCount + lostCount > 0
@@ -381,7 +390,7 @@ export async function getPipelineAndActivity(profile: Profile) {
     submissionDate: l.submission_date,
     settlementDate: l.settlement_date,
     loanAmount: l.loan_amount,
-    isSettled: categoryOf(l) === "settled",
+    isSettled: l.settlement_date != null,
     broker: l.owner_broker_id
       ? ((brokersById.get(l.owner_broker_id)?.full_name as string | undefined) ?? "Unknown broker")
       : l.broker_name_raw || "Unattributed",
