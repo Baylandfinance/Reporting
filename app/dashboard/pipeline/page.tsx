@@ -1,11 +1,16 @@
-import { CircleCheck, Clock, GitBranch, XCircle } from "lucide-react";
+import { CircleCheck, Clock, FileCheck2, GitBranch, XCircle } from "lucide-react";
 import { requireSessionProfile } from "@/lib/auth/session";
 import { Topbar } from "@/components/nav/Topbar";
 import { StatTile } from "@/components/charts/StatTile";
 import { Card } from "@/components/charts/Card";
 import { DonutBreakdown } from "@/components/charts/DonutBreakdown";
 import { ActivitySection } from "@/components/pipeline/ActivitySection";
-import { getPipelineAndActivity, getPendingSettlements } from "@/lib/reports/queries";
+import {
+  getPipelineAndActivity,
+  getPendingSettlements,
+  getSubmissionTracking,
+  type SubmissionTrackingRow,
+} from "@/lib/reports/queries";
 
 const CURRENCY = new Intl.NumberFormat("en-AU", {
   style: "currency",
@@ -17,10 +22,14 @@ const DATE = new Intl.DateTimeFormat("en-AU", { day: "numeric", month: "short", 
 
 export default async function PipelinePage() {
   const profile = await requireSessionProfile();
-  const [data, pendingSettlements] = await Promise.all([
+  const [data, pendingSettlements, submissionTracking] = await Promise.all([
     getPipelineAndActivity(profile),
     getPendingSettlements(profile),
+    getSubmissionTracking(profile),
   ]);
+
+  const submittedTotal = submissionTracking.submitted.reduce((s, r) => s + (r.loanAmount ?? 0), 0);
+  const plannedTotal = submissionTracking.planned.reduce((s, r) => s + (r.loanAmount ?? 0), 0);
 
   const now = new Date();
   const totalBookedAmount = pendingSettlements.reduce((sum, r) => sum + (r.loanAmount ?? 0), 0);
@@ -46,6 +55,43 @@ export default async function PipelinePage() {
         </div>
 
         <ActivitySection rows={data.activityRows} />
+
+        <Card
+          title="Submissions this month"
+          subtitle="Files actually submitted, plus files still queued in Planned Submission — together, what the month is tracking towards"
+        >
+          <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <StatTile
+              label={`Submitted (${submissionTracking.submitted.length})`}
+              value={CURRENCY.format(submittedTotal)}
+              icon={FileCheck2}
+            />
+            <StatTile
+              label={`Planned submission (${submissionTracking.planned.length})`}
+              value={CURRENCY.format(plannedTotal)}
+              icon={Clock}
+            />
+          </div>
+
+          {submissionTracking.submitted.length === 0 && submissionTracking.planned.length === 0 ? (
+            <div className="flex h-[100px] items-center justify-center text-sm text-ink-muted">
+              Nothing submitted or planned to submit this month yet.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+              <SubmissionList
+                heading="Submitted"
+                rows={submissionTracking.submitted}
+                emptyLabel="No files submitted this month yet."
+              />
+              <SubmissionList
+                heading="Planned submission"
+                rows={submissionTracking.planned}
+                emptyLabel="Nothing currently sitting in Planned Submission."
+              />
+            </div>
+          )}
+        </Card>
 
         <Card
           title="Pending settlements"
@@ -125,6 +171,50 @@ function EmptyState() {
   return (
     <div className="flex h-[180px] items-center justify-center text-sm text-ink-muted">
       No loans recorded yet — connect Excel Online or add loans to see this report.
+    </div>
+  );
+}
+
+function SubmissionList({
+  heading,
+  rows,
+  emptyLabel,
+}: {
+  heading: string;
+  rows: SubmissionTrackingRow[];
+  emptyLabel: string;
+}) {
+  return (
+    <div>
+      <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-muted">{heading}</h3>
+      {rows.length === 0 ? (
+        <p className="text-sm text-ink-muted">{emptyLabel}</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-ink-muted">
+                <th className="pb-2 font-medium">Client</th>
+                <th className="pb-2 font-medium">Lender</th>
+                <th className="pb-2 font-medium text-right">Amount</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-grid dark:divide-grid-dark">
+              {rows.map((row, i) => (
+                <tr key={i}>
+                  <td className="py-2 text-ink dark:text-ink-dark">{row.clientName}</td>
+                  <td className="py-2 text-ink-secondary dark:text-ink-secondary-dark">
+                    {row.lenderName}
+                  </td>
+                  <td className="py-2 text-right font-medium tabular-nums text-ink dark:text-ink-dark">
+                    {row.loanAmount != null ? CURRENCY.format(row.loanAmount) : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

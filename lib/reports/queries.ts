@@ -464,3 +464,73 @@ export async function getPendingSettlements(profile: Profile): Promise<PendingSe
     settlementBookedDate: r.settlement_booked_date,
   }));
 }
+
+export type SubmissionTrackingRow = {
+  clientName: string;
+  lenderName: string;
+  loanAmount: number | null;
+};
+
+export type SubmissionTracking = {
+  submitted: SubmissionTrackingRow[];
+  planned: SubmissionTrackingRow[];
+};
+
+/**
+ * Two small, targeted lists for the current calendar month: loans actually
+ * submitted (a real submission_date), and loans still sitting in the
+ * "Planned submission" stage — queued to submit but with no submission_date
+ * yet, so they'd otherwise be invisible in a submission count until they
+ * actually go in. Filtered in the database, like pending settlements.
+ */
+export async function getSubmissionTracking(profile: Profile): Promise<SubmissionTracking> {
+  const supabase = (await createClient()) as SupabaseClient;
+  const auditPromise = startAuditReportView(profile, "submission_tracking");
+
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString().slice(0, 10);
+
+  const { data: plannedStage } = await supabase
+    .from("pipeline_stages")
+    .select("id")
+    .ilike("name", "planned submission")
+    .maybeSingle();
+
+  const [submittedRes, plannedRes] = await Promise.all([
+    supabase
+      .from("loans")
+      .select("loan_amount, clients(full_name), lenders(name)")
+      .gte("submission_date", monthStart)
+      .lt("submission_date", monthEnd)
+      .order("submission_date", { ascending: true })
+      .range(0, 499),
+    plannedStage
+      ? supabase
+          .from("loans")
+          .select("loan_amount, clients(full_name), lenders(name)")
+          .eq("pipeline_stage_id", plannedStage.id)
+          .is("submission_date", null)
+          .range(0, 499)
+      : Promise.resolve({ data: [] }),
+  ]);
+
+  await auditPromise;
+
+  type Row = {
+    loan_amount: number | null;
+    clients: { full_name: string } | null;
+    lenders: { name: string } | null;
+  };
+
+  const toRow = (r: Row): SubmissionTrackingRow => ({
+    clientName: r.clients?.full_name ?? "Unknown client",
+    lenderName: r.lenders?.name ?? "Unassigned",
+    loanAmount: r.loan_amount,
+  });
+
+  return {
+    submitted: ((submittedRes.data ?? []) as unknown as Row[]).map(toRow),
+    planned: ((plannedRes.data ?? []) as unknown as Row[]).map(toRow),
+  };
+}
