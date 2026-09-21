@@ -31,7 +31,7 @@ export default async function AccountPage() {
         </Card>
 
         <Card title="Change password" subtitle="You'll need your current password to confirm it's you.">
-          <ChangePasswordForm email={profile.email} />
+          <ChangePasswordForm />
         </Card>
       </main>
     </>

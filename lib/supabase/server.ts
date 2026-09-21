@@ -34,6 +34,31 @@ export async function createClient() {
 }
 
 /**
+ * Anon-key client with no cookie storage at all — every auth call it makes
+ * (e.g. signInWithPassword to verify a password) is entirely in-memory and
+ * never touches the real request's session. Use this for anything that
+ * needs to check a credential without disturbing the caller's actual
+ * signed-in session; the regular createClient() would overwrite the
+ * current session's cookies with a fresh one from that call.
+ */
+export function createStatelessAnonClient() {
+  return createServerClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return [];
+        },
+        setAll() {
+          // no-op: this client's session must never leak into real cookies
+        },
+      },
+    }
+  );
+}
+
+/**
  * Service-role client for trusted server-only operations (e.g. the Graph
  * sync job writing rows on behalf of the whole org). This bypasses RLS —
  * it must never be imported into a client component or route that echoes

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireSessionProfile } from "@/lib/auth/session";
-import { createServiceRoleClient } from "@/lib/supabase/server";
+import { createServiceRoleClient, createStatelessAnonClient } from "@/lib/supabase/server";
 import { logAuditEvent } from "@/lib/audit/log";
 
 /**
@@ -37,5 +37,51 @@ export async function updateOwnName(
   });
 
   revalidatePath("/dashboard/account");
+  return { ok: true };
+}
+
+/**
+ * Verifying the current password by calling signInWithPassword from the
+ * browser client (as this used to) creates a brand-new session there and
+ * then overwrites the real one's cookies with it — silently dropping the
+ * user from their already-MFA-verified (aal2) session down to a fresh
+ * password-only (aal1) one. The subsequent password update itself may
+ * still succeed, but the user is left in a broken session state that
+ * looked like the update had failed. Verifying here instead, with a
+ * client that never writes any cookies, leaves the real session untouched
+ * no matter what the verification call does internally.
+ */
+export async function changeOwnPassword(
+  currentPassword: string,
+  newPassword: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const profile = await requireSessionProfile();
+
+  if (newPassword.length < 8) {
+    return { ok: false, error: "New password must be at least 8 characters." };
+  }
+
+  const verifyClient = createStatelessAnonClient();
+  const { error: verifyError } = await verifyClient.auth.signInWithPassword({
+    email: profile.email,
+    password: currentPassword,
+  });
+  if (verifyError) {
+    return { ok: false, error: "Current password is incorrect." };
+  }
+
+  const supabase = createServiceRoleClient();
+  const { error } = await supabase.auth.admin.updateUserById(profile.id, {
+    password: newPassword,
+  });
+  if (error) return { ok: false, error: error.message };
+
+  await logAuditEvent({
+    actorId: profile.id,
+    action: "change_own_password",
+    resourceType: "profile",
+    resourceId: profile.id,
+  });
+
   return { ok: true };
 }

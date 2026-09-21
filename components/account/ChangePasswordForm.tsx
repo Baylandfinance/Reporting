@@ -1,18 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { changeOwnPassword } from "@/app/dashboard/account/actions";
 import { Spinner } from "@/components/ui/Spinner";
 
-/**
- * Requires the current password before allowing a change, even though the
- * user already has an active session — a stolen/left-open browser session
- * shouldn't be enough on its own to lock the real owner out of their
- * account. Verified by re-running signInWithPassword rather than calling
- * some dedicated "reauthenticate" API, since Supabase doesn't expose one
- * for password confirmation.
- */
-export function ChangePasswordForm({ email }: { email: string }) {
+export function ChangePasswordForm() {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -35,26 +27,11 @@ export function ChangePasswordForm({ email }: { email: string }) {
     }
 
     setLoading(true);
-    const supabase = createClient();
-
-    const { error: reauthError } = await supabase.auth.signInWithPassword({
-      email,
-      password: currentPassword,
-    });
-
-    if (reauthError) {
-      setLoading(false);
-      setError("Current password is incorrect.");
-      return;
-    }
-
-    const { error: updateError } = await supabase.auth.updateUser({
-      password: newPassword,
-    });
-
+    const result = await changeOwnPassword(currentPassword, newPassword);
     setLoading(false);
-    if (updateError) {
-      setError("Couldn't update your password. Try again.");
+
+    if (!result.ok) {
+      setError(result.error);
       return;
     }
 
