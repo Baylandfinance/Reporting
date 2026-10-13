@@ -58,7 +58,7 @@ export default async function PipelinePage() {
 
         <Card
           title="Submissions this month"
-          subtitle="Files actually submitted, plus files still queued in Planned Submission — together, what the month is tracking towards"
+          subtitle="Files actually submitted this month, plus files that started this month and are still queued in Planned Submission"
         >
           <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <StatTile

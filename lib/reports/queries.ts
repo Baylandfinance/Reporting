@@ -481,7 +481,11 @@ export type SubmissionTracking = {
  * submitted (a real submission_date), and loans still sitting in the
  * "Planned submission" stage — queued to submit but with no submission_date
  * yet, so they'd otherwise be invisible in a submission count until they
- * actually go in. Filtered in the database, like pending settlements.
+ * actually go in. There's no "planned submission date" field in the source
+ * sheet, so "this month" for the planned list is based on the same earliest-
+ * recorded-date (enquiry, falling back to application, then quote) used
+ * elsewhere to identify a loan — i.e. deals that started this month and are
+ * still waiting to submit, not every planned loan ever recorded.
  */
 export async function getSubmissionTracking(profile: Profile): Promise<SubmissionTracking> {
   const supabase = (await createClient()) as SupabaseClient;
@@ -490,6 +494,7 @@ export async function getSubmissionTracking(profile: Profile): Promise<Submissio
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
   const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString().slice(0, 10);
+  const inThisMonth = (iso: string | null) => iso != null && iso >= monthStart && iso < monthEnd;
 
   const { data: plannedStage } = await supabase
     .from("pipeline_stages")
@@ -508,7 +513,7 @@ export async function getSubmissionTracking(profile: Profile): Promise<Submissio
     plannedStage
       ? supabase
           .from("loans")
-          .select("loan_amount, clients(full_name), lenders(name)")
+          .select("loan_amount, enquiry_date, application_date, quote_date, clients(full_name), lenders(name)")
           .eq("pipeline_stage_id", plannedStage.id)
           .is("submission_date", null)
           .range(0, 499)
@@ -522,6 +527,11 @@ export async function getSubmissionTracking(profile: Profile): Promise<Submissio
     clients: { full_name: string } | null;
     lenders: { name: string } | null;
   };
+  type PlannedRow = Row & {
+    enquiry_date: string | null;
+    application_date: string | null;
+    quote_date: string | null;
+  };
 
   const toRow = (r: Row): SubmissionTrackingRow => ({
     clientName: r.clients?.full_name ?? "Unknown client",
@@ -529,8 +539,12 @@ export async function getSubmissionTracking(profile: Profile): Promise<Submissio
     loanAmount: r.loan_amount,
   });
 
+  const plannedThisMonth = ((plannedRes.data ?? []) as unknown as PlannedRow[]).filter((r) =>
+    inThisMonth(r.enquiry_date ?? r.application_date ?? r.quote_date)
+  );
+
   return {
     submitted: ((submittedRes.data ?? []) as unknown as Row[]).map(toRow),
-    planned: ((plannedRes.data ?? []) as unknown as Row[]).map(toRow),
+    planned: plannedThisMonth.map(toRow),
   };
 }
