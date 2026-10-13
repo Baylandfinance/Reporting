@@ -213,20 +213,29 @@ export async function syncWorksheetRows(rows: SourceRow[]): Promise<SyncResult> 
     // permanent orphan nothing ever updates again. The source sheet has no
     // stable ID column (see docs/SETUP.md), so this is built from fields
     // that identify a loan and are set once near the start of its life —
-    // client, broker, lender, and the earliest date recorded — rather than
-    // fields that change as the loan progresses (status, amount, later
-    // dates), which must stay free to update the same row on every import.
+    // client, broker, and the earliest date recorded — rather than fields
+    // that change as the loan progresses (status, amount, later dates),
+    // which must stay free to update the same row on every import.
+    //
+    // Lender used to be part of this key too, on the assumption it was set
+    // once like broker and client. It isn't: a broker shopping a deal
+    // around and then correcting the lender column between uploads made
+    // every correction look like a brand-new loan under the old lender,
+    // leaving the pre-correction row behind as a permanent duplicate
+    // (confirmed against real data — see commit history). A lender change
+    // must update the same row, the same way a status or date change does.
     const naturalKeyDate =
       getDate("enquiry date") ?? getDate("application date") ?? getDate("quote date") ?? "no-date";
-    const baseKey = [clientNameRaw, brokerNameRaw, get("lender"), naturalKeyDate]
+    const baseKey = [clientNameRaw, brokerNameRaw, naturalKeyDate]
       .map((s) => s.trim().toLowerCase())
       .join("|");
 
-    // A genuine second loan for the same client/broker/lender with no
-    // distinguishing date (e.g. repeat business) would otherwise collide
-    // with the first and silently merge into one row, undercounting real
-    // submissions/settlements. Disambiguate every occurrence after the
-    // first within this same upload.
+    // A genuine second loan for the same client/broker with no
+    // distinguishing date (e.g. repeat business, or two loans to different
+    // lenders on the same day) would otherwise collide with the first and
+    // silently merge into one row, undercounting real submissions/
+    // settlements. Disambiguate every occurrence after the first within
+    // this same upload.
     const occurrence = seenNaturalKeys.get(baseKey) ?? 0;
     seenNaturalKeys.set(baseKey, occurrence + 1);
     const sourceRowRef = occurrence === 0 ? baseKey : `${baseKey}|${occurrence + 1}`;

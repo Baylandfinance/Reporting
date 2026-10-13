@@ -151,23 +151,27 @@ optional and left blank if missing.
 
 **How re-uploading the same loan is recognised.** There's no unique ID
 column in the sheet, so a loan is identified by `Client Name` + `Broker` +
-`Lender` + its earliest recorded date (`Enquiry Date`, falling back to
+its earliest recorded date (`Enquiry Date`, falling back to
 `Application Date`, then `Quote Date`). Re-uploading updates that same
-loan's row rather than creating a duplicate, as long as those fields stay
-the same between uploads. If the same client has more than one loan with
-the same broker and lender (repeat business), each one beyond the first is
-still kept as a separate row rather than merged — but which of those
-repeat loans is "the first" vs "the second" is decided by their order in
-the sheet, so keep them in a consistent order across uploads. Two
-consequences worth knowing:
+loan's row rather than creating a duplicate, as long as those two fields
+and the earliest date stay the same between uploads — `Lender` is
+deliberately **not** part of this, specifically so correcting or updating
+the lender on an existing loan (shopping a deal around, confirming who
+it's actually going to) updates that same row instead of creating a
+duplicate under the old lender. If the same client has more than one loan
+with the same broker (repeat business, or the same deal split across more
+than one lender), each one beyond the first is still kept as a separate
+row rather than merged — but which of those repeat loans is "the first"
+vs "the second" is decided by their order in the sheet, so keep them in a
+consistent order across uploads. Two consequences worth knowing:
 
-- If the same client approaches the same broker for the same lender a
-  second time with none of those three dates filled in yet, fill in at
-  least `Enquiry Date` as early as possible — it's the most reliable way
-  to keep repeat loans matched to the right row on every re-upload.
-- Correcting a typo in `Client Name`, `Broker`, or `Lender` after the fact
-  creates a new loan record instead of updating the existing one — fix
-  those directly in the app once imported, not by re-uploading a corrected
+- If the same client approaches the same broker a second time with none
+  of those three dates filled in yet, fill in at least `Enquiry Date` as
+  early as possible — it's the most reliable way to keep repeat loans
+  matched to the right row on every re-upload.
+- Correcting a typo in `Client Name` or `Broker` after the fact creates a
+  new loan record instead of updating the existing one — fix those
+  directly in the app once imported, not by re-uploading a corrected
   sheet.
 
 Things worth cleaning up in the source sheet before relying on this
