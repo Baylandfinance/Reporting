@@ -510,7 +510,6 @@ export async function getSubmissionTracking(profile: Profile): Promise<Submissio
           .eq("pipeline_stage_id", plannedStage.id)
           .gte("application_date", monthStart)
           .lt("application_date", monthEnd)
-          .is("submission_date", null) // already-submitted files belong in the Submitted list, not here too
           .order("application_date", { ascending: true })
           .range(0, 499)
       : Promise.resolve({ data: [] }),
