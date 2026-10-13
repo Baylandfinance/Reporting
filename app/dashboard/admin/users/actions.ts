@@ -1,5 +1,6 @@
 "use server";
 
+import { randomBytes } from "crypto";
 import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/auth/rbac";
 import { createServiceRoleClient } from "@/lib/supabase/server";
@@ -127,6 +128,50 @@ export async function deleteUser(
 
   revalidatePath("/dashboard/admin/users");
   return { ok: true };
+}
+
+/**
+ * Sets a new temporary password for a user who's locked out of their own
+ * account and has no other way back in — there's no self-service "forgot
+ * password" flow yet. Also clears any enrolled MFA factors: a lost or
+ * reinstalled authenticator app is the single most common lockout, and a
+ * new password alone wouldn't get past the MFA code step it's stuck on.
+ * Losing the enrolled factor is expected here, not a side effect to avoid —
+ * middleware already routes anyone with zero factors through /mfa-enroll
+ * on their next login, so they just re-enroll like a brand new account
+ * would. The plain password is returned once so the admin can relay it;
+ * nothing stores it.
+ */
+export async function adminResetPassword(
+  userId: string
+): Promise<{ ok: true; tempPassword: string } | { ok: false; error: string }> {
+  const admin = await requireRole("admin");
+  if (userId === admin.id) {
+    return { ok: false, error: "Use My account to change your own password." };
+  }
+
+  const tempPassword = randomBytes(9).toString("base64url"); // 12 chars, mixed case + digits
+
+  const supabase = createServiceRoleClient();
+  const { error } = await supabase.auth.admin.updateUserById(userId, {
+    password: tempPassword,
+  });
+  if (error) return { ok: false, error: error.message };
+
+  const { data: factorsData } = await supabase.auth.admin.mfa.listFactors({ userId });
+  for (const factor of factorsData?.factors ?? []) {
+    await supabase.auth.admin.mfa.deleteFactor({ id: factor.id, userId });
+  }
+
+  await logAuditEvent({
+    actorId: admin.id,
+    action: "admin_reset_password",
+    resourceType: "profile",
+    resourceId: userId,
+    metadata: { mfa_factors_cleared: factorsData?.factors?.length ?? 0 },
+  });
+
+  return { ok: true, tempPassword };
 }
 
 export async function updateUserRole(userId: string, role: UserRole) {

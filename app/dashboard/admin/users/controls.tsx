@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Trash2 } from "lucide-react";
-import { deleteUser, setUserActive, updateUserRole } from "./actions";
+import { KeyRound, Trash2 } from "lucide-react";
+import { adminResetPassword, deleteUser, setUserActive, updateUserRole } from "./actions";
 import type { UserRole } from "@/lib/types/database";
 import { Spinner } from "@/components/ui/Spinner";
 
@@ -62,6 +62,92 @@ export function ActiveToggle({
       {isPending && <Spinner className="h-3 w-3" />}
       {isPending ? "Updating…" : isActive ? "Active" : "Deactivated"}
     </button>
+  );
+}
+
+export function ResetPasswordButton({
+  userId,
+  fullName,
+  isSelf,
+}: {
+  userId: string;
+  fullName: string;
+  isSelf: boolean;
+}) {
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [tempPassword, setTempPassword] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  if (isSelf) return null;
+
+  function handleClick() {
+    setError(null);
+    const confirmed = window.confirm(
+      `Set a new temporary password for ${fullName}? This also clears their MFA enrollment — they'll go through it again on next login. Only do this if they're actually locked out.`
+    );
+    if (!confirmed) return;
+
+    startTransition(async () => {
+      const result = await adminResetPassword(userId);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      setTempPassword(result.tempPassword);
+      setCopied(false);
+    });
+  }
+
+  async function handleCopy() {
+    if (!tempPassword) return;
+    try {
+      await navigator.clipboard.writeText(tempPassword);
+      setCopied(true);
+    } catch {
+      // Clipboard access can fail (e.g. insecure context) — the password
+      // still displays, so the admin can select and copy it manually.
+    }
+  }
+
+  if (tempPassword) {
+    return (
+      <div className="flex flex-col items-end gap-1 rounded-lg border border-grid bg-surface p-2 text-right dark:border-grid-dark dark:bg-surface-dark">
+        <p className="text-xs text-ink-muted">New password for {fullName} — copy it now:</p>
+        <div className="flex items-center gap-2">
+          <code className="rounded bg-plane px-2 py-1 text-xs text-ink dark:bg-plane-dark dark:text-ink-dark">
+            {tempPassword}
+          </code>
+          <button
+            onClick={handleCopy}
+            className="rounded-lg bg-series-1 px-2 py-1 text-xs font-medium text-white hover:opacity-90"
+          >
+            {copied ? "Copied" : "Copy"}
+          </button>
+        </div>
+        <button
+          onClick={() => setTempPassword(null)}
+          className="text-xs text-ink-muted hover:underline"
+        >
+          Done
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <button
+        onClick={handleClick}
+        disabled={isPending}
+        title="Set a new temporary password"
+        className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium text-ink-muted transition hover:bg-series-1/10 hover:text-series-1 disabled:opacity-60"
+      >
+        {isPending ? <Spinner className="h-3.5 w-3.5" /> : <KeyRound className="h-3.5 w-3.5" />}
+        {isPending ? "Resetting…" : "Reset password"}
+      </button>
+      {error && <p className="max-w-[220px] text-right text-xs text-status-critical">{error}</p>}
+    </div>
   );
 }
 

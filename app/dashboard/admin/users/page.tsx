@@ -2,7 +2,7 @@ import { requireRole } from "@/lib/auth/rbac";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { Topbar } from "@/components/nav/Topbar";
 import { Card } from "@/components/charts/Card";
-import { RoleSelect, ActiveToggle, DeleteUserButton } from "./controls";
+import { RoleSelect, ActiveToggle, ResetPasswordButton, DeleteUserButton } from "./controls";
 import { InviteUserForm } from "./InviteUserForm";
 
 export default async function UsersPage() {
@@ -45,6 +45,7 @@ export default async function UsersPage() {
                 <th className="pb-2 font-medium">Role</th>
                 <th className="pb-2 font-medium">Status</th>
                 <th className="pb-2 font-medium"></th>
+                <th className="pb-2 font-medium"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-grid dark:divide-grid-dark">
@@ -67,6 +68,13 @@ export default async function UsersPage() {
                           </span>
                         )}
                       </div>
+                    </td>
+                    <td className="py-3 text-right">
+                      <ResetPasswordButton
+                        userId={p.id}
+                        fullName={p.full_name}
+                        isSelf={p.id === admin.id}
+                      />
                     </td>
                     <td className="py-3 text-right">
                       {p.id !== admin.id && (
