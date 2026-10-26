@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import JSZip from "jszip";
 import type { SourceCell, SourceRow } from "./normalize";
 
 // Deliberately using exceljs, not the npm `xlsx` package: as of writing,
@@ -25,12 +26,41 @@ function cellValueToPrimitive(value: ExcelJS.CellValue): SourceCell {
   return value as SourceCell;
 }
 
+const TABLE_OR_SHEET_XML = /^xl\/(tables\/table\d+|worksheets\/sheet\d+)\.xml$/;
+
+/**
+ * Removes saved filter criteria (<filterColumn> elements) from every table
+ * and worksheet in the workbook, leaving the data itself untouched.
+ *
+ * exceljs 4.4.0 throws "Unexpected xml node in parseOpen: dateGroupItem"
+ * on an Excel Table whose date filter has more than one year/month ticked
+ * — a filter someone left applied in the loan tracker made every upload
+ * fail outright. The importer reads every row regardless of filtering
+ * (hidden rows included), so the filter criteria carry nothing it needs.
+ */
+async function stripFilterCriteria(buffer: ArrayBuffer): Promise<ArrayBuffer> {
+  const zip = await JSZip.loadAsync(buffer);
+  let changed = false;
+
+  for (const path of Object.keys(zip.files)) {
+    if (!TABLE_OR_SHEET_XML.test(path)) continue;
+    const xml = await zip.file(path)!.async("string");
+    const stripped = xml.replace(/<filterColumn\b[^>]*?(?:\/>|>[\s\S]*?<\/filterColumn>)/g, "");
+    if (stripped !== xml) {
+      zip.file(path, stripped);
+      changed = true;
+    }
+  }
+
+  return changed ? zip.generateAsync({ type: "arraybuffer" }) : buffer;
+}
+
 /** Parses the first worksheet of an uploaded .xlsx file into header + data rows. */
 export async function parseWorkbookFirstSheet(
   buffer: ArrayBuffer
 ): Promise<{ worksheetName: string; rows: SourceRow[] }> {
   const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(buffer);
+  await workbook.xlsx.load(await stripFilterCriteria(buffer));
 
   const worksheet = workbook.worksheets[0];
   if (!worksheet) {
