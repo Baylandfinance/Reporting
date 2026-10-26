@@ -161,8 +161,9 @@ Open items, in rough priority order:
 - **No data retention/deletion tooling** — the Privacy Act gives clients
   rights here; currently any retention/deletion action would be a manual
   SQL operation, not a built workflow.
-- **Repository currently has a single branch** (`claude/mortgage-reporting-platform-hjbpxk`),
-  which is also GitHub's default branch and what Vercel deploys to
-  production from. A `main` branch and PR workflow are being introduced
-  for future changes; Vercel's production branch has not been changed as
-  part of that and still points at the branch above.
+- **Vercel deploys production from `main`.** Changes go in through pull
+  requests into `main`. The original branch
+  (`claude/mortgage-reporting-platform-hjbpxk`) was merged into `main` and
+  is no longer what production tracks. Note that after a Vercel Instant
+  Rollback, new production builds are not auto-promoted until a
+  deployment is promoted manually.
