@@ -7,6 +7,9 @@ import { ImportResultSummary } from "@/components/import/ImportResultSummary";
 import type { SyncResult } from "@/lib/import/syncRows";
 import { Spinner } from "@/components/ui/Spinner";
 
+// Matches serverActions.bodySizeLimit in next.config.mjs.
+const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
+
 export function UploadForm() {
   const formRef = useRef<HTMLFormElement>(null);
   const [fileName, setFileName] = useState<string | null>(null);
@@ -15,11 +18,35 @@ export function UploadForm() {
 
   function handleSubmit(formData: FormData) {
     setResult(null);
+
+    const file = formData.get("file");
+    if (file instanceof File && file.size > MAX_UPLOAD_BYTES) {
+      setResult({
+        synced: 0,
+        errors: [
+          `That file is ${(file.size / 1024 / 1024).toFixed(1)} MB — the upload limit is 4 MB. ` +
+            "Delete unused tabs, images or blank formatted rows from the workbook, save it, and try again.",
+        ],
+        unattributedByBroker: [],
+      });
+      return;
+    }
+
     startTransition(async () => {
-      const res = await uploadSpreadsheet(formData);
-      setResult(res);
-      formRef.current?.reset();
-      setFileName(null);
+      try {
+        const res = await uploadSpreadsheet(formData);
+        setResult(res);
+        formRef.current?.reset();
+        setFileName(null);
+      } catch {
+        // A thrown Server Action error (e.g. the request was rejected before
+        // reaching our code) would otherwise take down the whole page.
+        setResult({
+          synced: 0,
+          errors: ["The upload failed before the file could be processed. Reload the page and try again."],
+          unattributedByBroker: [],
+        });
+      }
     });
   }
 

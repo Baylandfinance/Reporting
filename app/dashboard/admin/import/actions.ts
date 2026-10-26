@@ -20,10 +20,23 @@ export async function uploadSpreadsheet(formData: FormData): Promise<SyncResult>
     };
   }
 
-  const buffer = await file.arrayBuffer();
-  const { worksheetName, rows } = await parseWorkbookFirstSheet(buffer);
-
-  const result = await syncWorksheetRows(rows);
+  let worksheetName: string;
+  let result: SyncResult;
+  try {
+    const buffer = await file.arrayBuffer();
+    const parsed = await parseWorkbookFirstSheet(buffer);
+    worksheetName = parsed.worksheetName;
+    result = await syncWorksheetRows(parsed.rows);
+  } catch (err) {
+    console.error("uploadSpreadsheet failed", err);
+    return {
+      synced: 0,
+      errors: [
+        "Couldn't process that file. Check it opens in Excel and is saved as .xlsx, then try again.",
+      ],
+      unattributedByBroker: [],
+    };
+  }
 
   await logAuditEvent({
     actorId: admin.id,

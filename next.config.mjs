@@ -2,6 +2,15 @@
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  experimental: {
+    serverActions: {
+      // Spreadsheet uploads go through a Server Action, whose default body
+      // limit is 1 MB — a real loan tracker export outgrows that. Vercel
+      // caps function request bodies at 4.5 MB regardless, so 4 MB is the
+      // practical ceiling here.
+      bodySizeLimit: "4mb",
+    },
+  },
   async headers() {
     return [
       {
