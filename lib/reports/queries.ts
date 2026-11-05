@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { logAuditEvent } from "@/lib/audit/log";
 import type { Database } from "@/lib/types/database";
+import { buildManagementReport, type ManagementLoanRow, type ManagementReport } from "@/lib/reports/management";
 
 type Profile = Database["public"]["Tables"]["profiles"]["Row"];
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>;
@@ -43,6 +44,11 @@ async function countRows(
  * another) since we know the total up front from countRows() — a 3,500-row
  * table is 4 requests either way, but concurrently they cost about as long
  * as one.
+ *
+ * Every caller's query must sort by a unique column (`.order("id")`):
+ * without an ORDER BY, Postgres doesn't promise the same row order across
+ * separate requests, so offset-based pages fetched in parallel could
+ * overlap (one loan counted twice) or leave a gap (one loan missed).
  */
 async function selectAllRows<T>(
   total: number,
@@ -54,9 +60,15 @@ async function selectAllRows<T>(
 
   const pages = await Promise.all(pageStarts.map((from) => query(from, from + PAGE_SIZE - 1)));
 
+  // A failed page used to be skipped silently, quietly dropping up to
+  // 1,000 rows from a report's totals. A report built on partial data is
+  // worse than no report, so fail loudly instead.
   const all: T[] = [];
   for (const { data, error } of pages) {
-    if (!error && data) all.push(...data);
+    if (error || !data) {
+      throw new Error(`Report query failed part-way through paging: ${JSON.stringify(error)}`);
+    }
+    all.push(...data);
   }
   return all;
 }
@@ -100,6 +112,7 @@ export async function getPipelineOverview(profile: Profile) {
     supabase
       .from("loans")
       .select("loan_amount, settlement_date, pipeline_stage_id")
+      .order("id")
       .range(from, to) as unknown as PromiseLike<{ data: LoanForPipeline[] | null; error: unknown }>
   );
 
@@ -199,6 +212,7 @@ export async function getCommissionSummary(profile: Profile) {
     supabase
       .from("loan_commissions")
       .select("upfront_commission, trail_commission, clawback_amount, commission_payment_date")
+      .order("id")
       .range(from, to) as unknown as PromiseLike<{ data: CommissionRow[] | null; error: unknown }>
   );
 
@@ -234,6 +248,7 @@ export async function getLenderMix(profile: Profile) {
     supabase
       .from("loans")
       .select("loan_amount, lender_id")
+      .order("id")
       .range(from, to) as unknown as PromiseLike<{ data: LoanForLenderMix[] | null; error: unknown }>
   );
 
@@ -270,6 +285,7 @@ export async function getReferralBreakdown(profile: Profile) {
     supabase
       .from("clients")
       .select("client_type, lead_source_id")
+      .order("id")
       .range(from, to) as unknown as PromiseLike<{ data: ClientForReferral[] | null; error: unknown }>
   );
 
@@ -350,6 +366,7 @@ export async function getPipelineAndActivity(profile: Profile) {
       .select(
         "loan_amount, enquiry_date, submission_date, settlement_date, pipeline_stage_id, loan_administrator_name, parabroker_name, owner_broker_id, broker_name_raw"
       )
+      .order("id")
       .range(from, to) as unknown as PromiseLike<{ data: LoanActivity[] | null; error: unknown }>
   );
 
@@ -533,4 +550,48 @@ export async function getSubmissionTracking(profile: Profile): Promise<Submissio
     submitted: ((submittedRes.data ?? []) as unknown as Row[]).map(toRow),
     planned: ((plannedRes.data ?? []) as unknown as Row[]).map(toRow),
   };
+}
+
+/**
+ * Team Performance and Average Loan Size share one fetch: every loan's
+ * attribution fields, status, amount and key dates. Aggregation is done by
+ * the pure buildManagementReport() so the same arithmetic is used by the
+ * dev-only dummy-data preview. RLS still applies — these pages are
+ * admin-only, and an admin's policies cover the whole book.
+ */
+export async function getManagementReport(
+  profile: Profile,
+  report: "team_performance" | "average_loan_size",
+  reportMonth: { year: number; monthIndex: number }
+): Promise<ManagementReport> {
+  const supabase = (await createClient()) as SupabaseClient;
+  const auditPromise = startAuditReportView(profile, report);
+
+  type LoanForManagement = Omit<ManagementLoanRow, "status"> & { pipeline_stage_id: string | null };
+
+  const [total, stagesById] = await Promise.all([
+    countRows(supabase, "loans"),
+    fetchLookup(supabase, "pipeline_stages", "id, name"),
+  ]);
+  const rows = await selectAllRows<LoanForManagement>(total, (from, to) =>
+    supabase
+      .from("loans")
+      .select(
+        "id, broker_name_raw, loan_administrator_name, pipeline_stage_id, loan_amount, enquiry_date, quote_date, application_date, submission_date, settlement_date"
+      )
+      .order("id")
+      .range(from, to) as unknown as PromiseLike<{ data: LoanForManagement[] | null; error: unknown }>
+  );
+
+  const result = buildManagementReport(
+    rows.map(({ pipeline_stage_id, ...rest }) => ({
+      ...rest,
+      status: pipeline_stage_id ? ((stagesById.get(pipeline_stage_id)?.name as string | undefined) ?? null) : null,
+    })),
+    total,
+    reportMonth
+  );
+
+  await auditPromise;
+  return result;
 }
