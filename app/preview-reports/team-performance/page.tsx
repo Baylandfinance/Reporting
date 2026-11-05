@@ -11,7 +11,7 @@ export default function TeamPerformancePreview() {
   const report = buildManagementReport(rows, rows.length, { year: 2026, monthIndex: 9 });
   return (
     <>
-      <Topbar title="Team Performance" subtitle="Dummy data from the specification." />
+      <Topbar title="Broker Team Performance" subtitle="Dummy data from the specification." />
       <main className="flex-1 space-y-6 p-6">
         <ReportControls months={[report.reportMonth]} selected={report.reportMonth.key} />
         <TeamPerformanceView report={report} />

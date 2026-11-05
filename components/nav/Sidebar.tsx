@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { LayoutDashboard, GitBranch, Wallet, Landmark, Users2, Settings, UploadCloud, UserCog, Target, Scale } from "lucide-react";
+import { LayoutDashboard, GitBranch, Wallet, Landmark, Users2, Settings, UploadCloud, UserCog, Target, Scale, Megaphone } from "lucide-react";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
@@ -9,11 +9,12 @@ const NAV_ITEMS = [
   { href: "/dashboard/referrals", label: "Clients & Referrals", icon: Users2 },
 ];
 
-// Firm-wide reports (team and company totals) — admin only, since a
+// One tab per report specification. Firm-wide figures — admin only, since a
 // broker's RLS-scoped view would only ever total their own book.
 const MANAGEMENT_ITEMS = [
-  { href: "/dashboard/team-performance", label: "Team Performance", icon: Target },
+  { href: "/dashboard/team-performance", label: "Broker Team Performance", icon: Target },
   { href: "/dashboard/average-loan-size", label: "Average Loan Size", icon: Scale },
+  { href: "/dashboard/leads", label: "Leads Marketing", icon: Megaphone },
 ];
 
 export function Sidebar({

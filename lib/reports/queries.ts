@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { logAuditEvent } from "@/lib/audit/log";
 import type { Database } from "@/lib/types/database";
 import { buildManagementReport, type ManagementLoanRow, type ManagementReport } from "@/lib/reports/management";
+import { buildLeadsReport, type LeadRow, type LeadsReport } from "@/lib/reports/leads";
 
 type Profile = Database["public"]["Tables"]["profiles"]["Row"];
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>;
@@ -589,6 +590,60 @@ export async function getManagementReport(
       status: pipeline_stage_id ? ((stagesById.get(pipeline_stage_id)?.name as string | undefined) ?? null) : null,
     })),
     total,
+    reportMonth
+  );
+
+  await auditPromise;
+  return result;
+}
+
+/**
+ * Leads & Marketing: every loan is one lead. Lead source lives on the
+ * client (Lead Origination is per client in the sheet), so clients are
+ * paged in alongside loans and joined in memory.
+ */
+export async function getLeadsReport(
+  profile: Profile,
+  reportMonth: { year: number; monthIndex: number }
+): Promise<LeadsReport> {
+  const supabase = (await createClient()) as SupabaseClient;
+  const auditPromise = startAuditReportView(profile, "leads_marketing");
+
+  type LoanForLeads = Omit<LeadRow, "lead_source"> & { client_id: string };
+  type ClientForLeads = { id: string; lead_source_id: string | null };
+
+  const [loanTotal, clientTotal, sourcesById] = await Promise.all([
+    countRows(supabase, "loans"),
+    countRows(supabase, "clients"),
+    fetchLookup(supabase, "lead_sources", "id, name"),
+  ]);
+  const [loans, clients] = await Promise.all([
+    selectAllRows<LoanForLeads>(loanTotal, (from, to) =>
+      supabase
+        .from("loans")
+        .select("client_id, transaction_type_raw, enquiry_date, quote_date, application_date")
+        .order("id")
+        .range(from, to) as unknown as PromiseLike<{ data: LoanForLeads[] | null; error: unknown }>
+    ),
+    selectAllRows<ClientForLeads>(clientTotal, (from, to) =>
+      supabase
+        .from("clients")
+        .select("id, lead_source_id")
+        .order("id")
+        .range(from, to) as unknown as PromiseLike<{ data: ClientForLeads[] | null; error: unknown }>
+    ),
+  ]);
+
+  const sourceByClient = new Map(
+    clients.map((c) => [
+      c.id,
+      c.lead_source_id ? ((sourcesById.get(c.lead_source_id)?.name as string | undefined) ?? null) : null,
+    ])
+  );
+
+  const result = buildLeadsReport(
+    loans.map(({ client_id, ...rest }) => ({ ...rest, lead_source: sourceByClient.get(client_id) ?? null })),
+    loanTotal,
     reportMonth
   );
 
