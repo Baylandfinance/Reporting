@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { LayoutDashboard, GitBranch, Wallet, Landmark, Users2, Settings, UploadCloud, UserCog, Target, Scale, Megaphone } from "lucide-react";
+import { LayoutDashboard, GitBranch, Wallet, Landmark, Users2, Settings, UploadCloud, UserCog, Target, Scale } from "lucide-react";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
@@ -14,7 +14,6 @@ const NAV_ITEMS = [
 const MANAGEMENT_ITEMS = [
   { href: "/dashboard/team-performance", label: "Team Performance", icon: Target },
   { href: "/dashboard/average-loan-size", label: "Average Loan Size", icon: Scale },
-  { href: "/dashboard/leads", label: "Leads & Marketing", icon: Megaphone },
 ];
 
 export function Sidebar({
@@ -25,7 +24,7 @@ export function Sidebar({
   role: string;
 }) {
   return (
-    <aside className="hidden w-64 shrink-0 flex-col bg-[#111113] text-[#c3c2b7] md:flex">
+    <aside className="hidden w-64 shrink-0 flex-col bg-[#111113] text-[#c3c2b7] md:flex print:hidden">
       <div className="flex items-center gap-2 px-6 py-6">
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-series-1 text-sm font-bold text-white">
           BF

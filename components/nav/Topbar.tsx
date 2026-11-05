@@ -13,7 +13,7 @@ export function Topbar({ title, subtitle }: { title: string; subtitle?: string }
           </p>
         )}
       </div>
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 print:hidden">
         <span className="hidden items-center gap-1.5 rounded-full bg-status-good/10 px-3 py-1 text-xs font-medium text-status-good sm:flex">
           <Shield className="h-3.5 w-3.5" />
           MFA active session

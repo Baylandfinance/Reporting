@@ -96,6 +96,8 @@ export function MultiLine({
               dot={{ r: 4, strokeWidth: 2, stroke: "#fcfcfb", fill: color }}
               activeDot={{ r: 5, fill: color }}
               connectNulls={false}
+              // Static render: animation half-draws lines in print/PDF export.
+              isAnimationActive={false}
             />
           );
         })}
