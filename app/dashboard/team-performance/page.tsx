@@ -18,7 +18,7 @@ export default async function TeamPerformancePage({
 
   return (
     <>
-      <Topbar title="Team Performance" subtitle="Settlements and weighted pipeline against each team's goal." />
+      <Topbar title="Broker Team Performance" subtitle="Settlements and weighted pipeline against each team's goal." />
       <main className="flex-1 space-y-6 p-6">
         <ReportControls months={selectableMonths()} selected={report.months[report.months.length - 1]!.key} />
         <TeamPerformanceView report={report} />
