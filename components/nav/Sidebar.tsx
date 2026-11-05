@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { LayoutDashboard, GitBranch, Wallet, Landmark, Users2, Settings, UploadCloud, UserCog } from "lucide-react";
+import { LayoutDashboard, GitBranch, Wallet, Landmark, Users2, Settings, UploadCloud, UserCog, Target, Scale, Megaphone } from "lucide-react";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
@@ -7,6 +7,14 @@ const NAV_ITEMS = [
   { href: "/dashboard/commissions", label: "Commissions", icon: Wallet },
   { href: "/dashboard/lenders", label: "Lenders & Products", icon: Landmark },
   { href: "/dashboard/referrals", label: "Clients & Referrals", icon: Users2 },
+];
+
+// Firm-wide reports (team and company totals) — admin only, since a
+// broker's RLS-scoped view would only ever total their own book.
+const MANAGEMENT_ITEMS = [
+  { href: "/dashboard/team-performance", label: "Team Performance", icon: Target },
+  { href: "/dashboard/average-loan-size", label: "Average Loan Size", icon: Scale },
+  { href: "/dashboard/leads", label: "Leads & Marketing", icon: Megaphone },
 ];
 
 export function Sidebar({
@@ -50,6 +58,23 @@ export function Sidebar({
 
         {role === "admin" && (
           <>
+            <div className="px-3 pb-2 pt-6 text-[11px] font-medium uppercase tracking-wide text-ink-muted">
+              Management
+            </div>
+            {MANAGEMENT_ITEMS.map((item) => {
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-[#c3c2b7] transition hover:bg-white/5 hover:text-white"
+                >
+                  <Icon className="h-4 w-4" />
+                  {item.label}
+                </Link>
+              );
+            })}
+
             <div className="px-3 pb-2 pt-6 text-[11px] font-medium uppercase tracking-wide text-ink-muted">
               Admin
             </div>
